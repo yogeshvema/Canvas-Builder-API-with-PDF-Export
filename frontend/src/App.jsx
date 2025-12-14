@@ -1,11 +1,38 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Square, Circle, Type, Image as ImageIcon, Download, MousePointer2, Triangle, Hexagon, Palette, Undo, Redo, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown } from 'lucide-react'; 
+import { Square, Circle, Type, Image as ImageIcon, Download, MousePointer2, Triangle, Hexagon, Palette, Undo, Redo, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Save, FolderOpen, Grid, PenTool, RotateCw, Clipboard, CheckCircle, XCircle, Ungroup, Group } from 'lucide-react'; 
 
 // --- Constants ---
 const RESIZE_SENSITIVITY_FACTOR = 0.6;
 const MAX_HISTORY_LENGTH = 50; 
 const SNAP_TOLERANCE = 5; // Pixels distance to snap
+// FEATURE 3: Color Presets
+const COLOR_PRESETS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#000000', '#ffffff', '#6366f1', '#e879f9']; 
+
+// --- Toast/Notification Component ---
+
+const Toast = ({ message, type, onClose }) => {
+    const icon = type === 'success' ? <CheckCircle size={20} /> : <XCircle size={20} />;
+    const colorClass = type === 'success' ? 'bg-emerald-600' : 'bg-red-600';
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            onClose();
+        }, 3000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    return (
+        <div className={`fixed bottom-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white flex items-center gap-3 transition-opacity duration-300 ${colorClass}`}>
+            {icon}
+            <span>{message}</span>
+            <button onClick={onClose} className="ml-2 opacity-70 hover:opacity-100">
+                &times;
+            </button>
+        </div>
+    );
+};
+
 
 // --- Context Menu Component (Externalized) ---
 
@@ -33,107 +60,202 @@ const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onC
                 
                 <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-emerald-600 rounded-md transition ${isElementSelected ? '' : 'opacity-50 cursor-not-allowed'}`}
                     onClick={isElementSelected ? () => onAction('copy') : null}>
-                    Copy
+                    Copy (Ctrl+C)
                 </li>
                 
                 <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-emerald-600 rounded-md transition ${copiedElement ? '' : 'opacity-50 cursor-not-allowed'}`}
                     onClick={copiedElement ? () => onAction('paste') : null}>
-                    Paste
+                    Paste (Ctrl+V)
                 </li>
                 
                 <hr className="my-1 border-gray-700" />
                 
                 <li className={`flex items-center px-3 py-2 text-sm cursor-pointer rounded-md transition ${isElementSelected ? 'bg-red-600 hover:bg-red-700 font-semibold' : 'opacity-50 cursor-not-allowed text-red-300'}`}
                     onClick={isElementSelected ? () => onAction('delete') : null}>
-                    Delete
+                    Delete (Del/Back)
                 </li>
             </ul>
         </div>
     );
 };
 
-// --- Element Properties Component (Externalized - Including Font Size Logic) ---
+// --- Element Properties Component (Externalized) ---
 
-const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLayer, moveLayerToExtreme }) => {
+const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLayer, moveLayerToExtreme, toggleGroupStatus }) => {
     
     const isImage = selectedElement?.type === 'image';
     const isText = selectedElement?.type === 'text';
+    const isShape = selectedElement && !isImage && !isText;
     
     if (!selectedElement) {
         return null;
     }
 
-    if (isImage) {
-        return (
-             <div className="p-6 border-t border-white/10 bg-white/5 mt-auto">
-                <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Selected Element</h2>
-                <p className="text-xs text-emerald-300">ID: {selectedElement.id}</p>
-                <p className="text-xs text-emerald-300 mt-2 italic">Image selected (no color options).</p>
-                <button
-                    onClick={() => {
-                        setElements(prevElements => prevElements.filter(el => el.id !== selectedElement.id));
-                        setSelectedId(null);
-                    }}
-                    className="mt-4 w-full bg-red-500/20 text-red-200 border border-red-400/30 py-2 rounded-md text-xs font-semibold hover:bg-red-500/30 transition"
-                >
-                    Delete Image
-                </button>
-            </div>
-        );
-    }
-    
+    // Styles
     const currentColor = selectedElement.color || '#000000'; 
     const currentFontSize = selectedElement.fontSize || 24;
+    const currentStrokeWidth = selectedElement.strokeWidth || 0;
+    const currentStrokeColor = selectedElement.strokeColor || '#000000';
+    const currentRotation = selectedElement.rotation || 0;
+    const currentOpacity = selectedElement.opacity !== undefined ? selectedElement.opacity : 1; 
 
-    const handleColorChange = (e) => {
-        const newColor = e.target.value;
-        setElements(prevElements => 
+    const handleStyleChange = (key, value) => {
+         setElements(prevElements => 
             prevElements.map(el => 
                 el.id === selectedElement.id 
-                    ? { ...el, color: newColor } 
+                    ? { ...el, [key]: value } 
                     : el
             )
         );
     };
 
-    const handleFontSizeChange = (e) => {
-        const newSize = parseInt(e.target.value);
-        setElements(prevElements => 
-            prevElements.map(el => 
-                el.id === selectedElement.id 
-                    ? { ...el, fontSize: newSize } 
-                    : el
-            )
-        );
-    };
+    const handleTextContentChange = (e) => handleStyleChange('text', e.target.value);
+    const handleColorChange = (e) => handleStyleChange('color', e.target.value);
+    const handleFontSizeChange = (e) => handleStyleChange('fontSize', parseInt(e.target.value));
+    const handleStrokeColorChange = (e) => handleStyleChange('strokeColor', e.target.value);
+    const handleStrokeWidthChange = (e) => handleStyleChange('strokeWidth', parseInt(e.target.value) || 0);
+    const handleRotationChange = (e) => handleStyleChange('rotation', parseInt(e.target.value) || 0);
+    const handleOpacityChange = (e) => handleStyleChange('opacity', parseFloat(e.target.value)); 
 
     const handleDelete = () => {
         setElements(prevElements => prevElements.filter(el => el.id !== selectedElement.id));
         setSelectedId(null);
     };
+    
+    // FEATURE 1: Grouping
+    const isGrouped = selectedElement.isGrouped || false;
+
 
     return (
-        <div className="p-6 border-t border-white/10 bg-white/5 mt-auto">
+        <div className="p-6 border-t border-white/10 bg-white/5"> {/* Removed mt-auto here */}
             <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Selected Element</h2>
             <p className="text-xs text-emerald-300 mb-4">ID: {selectedElement.id}</p>
             
-            {/* Color Picker Section */}
-            <div className="flex items-center justify-between mb-4 p-3 bg-white/10 rounded-lg">
-                <div className="flex items-center gap-2">
-                     <Palette size={18} className="text-emerald-300" />
-                     <span className="text-sm font-medium text-white">Color</span>
+            {/* Text Content Input */}
+            {isText && (
+                 <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                    <label className="text-xs text-emerald-300 mb-2 block">Text Content</label>
+                    <textarea
+                        rows="3"
+                        value={selectedElement.text}
+                        onChange={handleTextContentChange}
+                        className="w-full bg-white/20 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+                    />
                 </div>
-                
+            )}
+            
+            {/* Fill Color Picker Section */}
+            {!isImage && (
+                <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                             <Palette size={18} className="text-emerald-300" />
+                             <span className="text-sm font-medium text-white">{isText ? 'Text Color' : 'Fill Color'}</span>
+                        </div>
+                        
+                        <input
+                            type="color"
+                            value={currentColor}
+                            onChange={handleColorChange}
+                            className="w-8 h-8 cursor-pointer rounded-full border-2 border-white/50 overflow-hidden"
+                            title="Choose element color"
+                        />
+                    </div>
+                    
+                    {/* FEATURE 3: Color Presets */}
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10 mt-2">
+                        {COLOR_PRESETS.map((color) => (
+                            <button
+                                key={color}
+                                style={{ backgroundColor: color }}
+                                className={`w-6 h-6 rounded-full border-2 transition ${currentColor === color ? 'border-white ring-2 ring-emerald-400' : 'border-transparent'}`}
+                                onClick={() => handleStyleChange('color', color)}
+                                title={color}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+
+            {/* Stroke/Border Controls */}
+            {isShape && (
+                <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                    <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Border/Stroke</h3>
+                    
+                    {/* Stroke Width Slider */}
+                    <div className="mb-3">
+                        <label className="text-xs text-emerald-300 mb-2 block">Width ({currentStrokeWidth}px)</label>
+                        <input
+                            type="range"
+                            min="0"
+                            max="20"
+                            value={currentStrokeWidth}
+                            onChange={handleStrokeWidthChange}
+                            className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                        />
+                    </div>
+                    
+                    {/* Stroke Color Picker */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <PenTool size={18} className="text-emerald-300" />
+                            <span className="text-sm font-medium text-white">Stroke Color</span>
+                        </div>
+                        <input
+                            type="color"
+                            value={currentStrokeColor}
+                            onChange={handleStrokeColorChange}
+                            className="w-8 h-8 cursor-pointer rounded-full border-2 border-white/50 overflow-hidden"
+                            title="Choose border color"
+                        />
+                    </div>
+                </div>
+            )}
+            
+            {/* Opacity Control */}
+             <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                <label className="text-xs text-emerald-300 mb-2 block">Opacity ({Math.round(currentOpacity * 100)}%)</label>
                 <input
-                    type="color"
-                    value={currentColor}
-                    onChange={handleColorChange}
-                    className="w-8 h-8 cursor-pointer rounded-full border-2 border-white/50 overflow-hidden"
-                    title="Choose element color"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={currentOpacity}
+                    onChange={handleOpacityChange}
+                    className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
                 />
             </div>
 
-            {/* Font Size Control for Text (NEW) */}
+            {/* Rotation Control */}
+            {!isImage && (
+                 <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                            <RotateCw size={18} className="text-emerald-300" />
+                            <span className="text-sm font-medium text-white">Rotation ({currentRotation}°)</span>
+                        </div>
+                        <button
+                            onClick={() => handleStyleChange('rotation', (currentRotation + 45) % 360)}
+                            className="p-1 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition"
+                            title="Rotate 45 degrees"
+                        >
+                            <RotateCw size={16} />
+                        </button>
+                    </div>
+                    <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        value={currentRotation}
+                        onChange={handleRotationChange}
+                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                    />
+                </div>
+            )}
+
+
+            {/* Font Size Control for Text */}
             {isText && (
                 <div className="mb-4 p-3 bg-white/10 rounded-lg">
                     <label className="text-xs text-emerald-300 mb-2 block">Font Size ({currentFontSize}px)</label>
@@ -148,20 +270,29 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
                 </div>
             )}
             
+            {/* FEATURE 1: Grouping Button (Conceptual) */}
+            <button
+                onClick={() => toggleGroupStatus(selectedElement.id)}
+                className={`mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-semibold transition ${isGrouped ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-400/30 hover:bg-indigo-700/40' : 'bg-gray-500/20 text-gray-300 border border-gray-400/30 hover:bg-gray-600/30'}`}
+            >
+                {isGrouped ? <Ungroup size={16} /> : <Group size={16} />}
+                {isGrouped ? 'Ungroup' : 'Group (Conceptual)'}
+            </button>
+            
             {/* Layer Controls */}
-             <div className="mb-4">
+             <div className="mb-4 mt-4">
                 <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Layer Order</h3>
                 <div className="grid grid-cols-4 gap-2">
-                    <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front">
+                    <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front (Ctrl+])">
                         <ChevronsUp size={16} />
                     </button>
-                    <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward">
+                    <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward (Ctrl+Shift+])">
                         <ChevronUp size={16} />
                     </button>
-                    <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward">
+                    <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward (Ctrl+Shift+[)">
                         <ChevronDown size={16} />
                     </button>
-                    <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back">
+                    <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back (Ctrl+[)">
                         <ChevronsDown size={16} />
                     </button>
                 </div>
@@ -172,7 +303,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
                 onClick={handleDelete}
                 className="mt-4 w-full bg-red-500/20 text-red-200 border border-red-400/30 py-2 rounded-md text-xs font-semibold hover:bg-red-500/30 transition"
             >
-                Delete Element
+                Delete Element (Del/Backspace)
             </button>
 
             <p className="text-xs text-emerald-300 mt-2 italic">Right-click on the canvas element for more actions.</p>
@@ -182,7 +313,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
 
 
 function App() {
-    const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
+    const [canvasSize, setCanvasSize] = useState({ width: 1000, height: 1000});
     const [elements, setElements] = useState([]);
     const [selectedId, setSelectedId] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -202,16 +333,25 @@ function App() {
     // --- SNAP GUIDES STATE ---
     const [activeGuides, setActiveGuides] = useState({ x: [], y: [] }); 
 
-    // --- EXPORT SETTINGS STATE (Unchanged for this fix) ---
+    // --- GRID STATE ---
+    const [showGrid, setShowGrid] = useState(false);
+    const [gridSize, setGridSize] = useState(50); 
+    
+    // --- TOAST STATE ---
+    const [toast, setToast] = useState(null); 
+    // --- END TOAST STATE ---
+
+    // --- EXPORT SETTINGS STATE ---
     const [exportSettings, setExportSettings] = useState({
         quality: 'medium', 
         dpi: 300,
         orientation: 'portrait' 
     });
 
-
     const canvasRef = useRef(null);
     const fileInputRef = useRef(null);
+    const loadFileInputRef = useRef(null); 
+    
     const ctxRef = useRef(null);
     
     useEffect(() => {
@@ -223,7 +363,23 @@ function App() {
     const selectedElement = elements.find(el => el.id === selectedId);
 
 
-    // --- HISTORY MANAGEMENT (Unchanged) ---
+    // --- FEATURE 1: Grouping Logic Placeholder ---
+    const toggleGroupStatus = useCallback((id) => {
+        const element = elements.find(el => el.id === id);
+        const isCurrentlyGrouped = element?.isGrouped || false;
+        
+        setElements(prevElements => 
+            prevElements.map(el => 
+                el.id === id 
+                    ? { ...el, isGrouped: !isCurrentlyGrouped } 
+                    : el
+            )
+        );
+        setToast({ message: isCurrentlyGrouped ? 'Element ungrouped (Concept).' : 'Element marked as grouped (Concept).', type: 'success' });
+    }, [elements, setToast]);
+
+
+    // --- HISTORY MANAGEMENT ---
 
     const saveHistory = useCallback((newElements) => {
         setHistory(prevHistory => {
@@ -282,8 +438,11 @@ function App() {
 
             setElements(newElements);
             setSelectedId(null);
+            setToast({ message: 'Undo successful.', type: 'success' });
+        } else {
+            setToast({ message: 'Nothing left to undo.', type: 'error' });
         }
-    }, [history, historyIndex]);
+    }, [history, historyIndex, setToast]);
 
     const handleRedo = useCallback(() => {
         if (historyIndex < history.length - 1) {
@@ -307,26 +466,11 @@ function App() {
             
             setElements(newElements);
             setSelectedId(null);
+            setToast({ message: 'Redo successful.', type: 'success' });
+        } else {
+            setToast({ message: 'Nothing left to redo.', type: 'error' });
         }
-    }, [history, historyIndex]);
-
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            const isCtrl = e.ctrlKey || e.metaKey; 
-            
-            if (isCtrl && e.key === 'z') {
-                e.preventDefault();
-                handleUndo();
-            } else if (isCtrl && e.key === 'y') {
-                e.preventDefault();
-                handleRedo();
-            }
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [handleUndo, handleRedo]);
+    }, [history, historyIndex, setToast]);
 
 
     // --- LAYER MANAGEMENT FUNCTIONS ---
@@ -400,19 +544,47 @@ function App() {
         }
     };
     
+    // Calculates the *unrotated* bounding box for selection/snapping
     const getElementBounds = (el, ctx) => {
         let x, y, w, h;
+        const strokeOffset = (el.strokeWidth || 0) / 2; 
 
         if (el.type === 'rect' || el.type === 'image') {
-            x = el.x; y = el.y; w = el.width; h = el.height;
+            x = el.x - strokeOffset; 
+            y = el.y - strokeOffset; 
+            w = el.width + (strokeOffset * 2); 
+            h = el.height + (strokeOffset * 2);
         } else if (el.type === 'circle') {
-            x = el.x; y = el.y; w = el.radius * 2; h = el.radius * 2;
+            x = el.x - strokeOffset; 
+            y = el.y - strokeOffset; 
+            w = el.radius * 2 + (strokeOffset * 2); 
+            h = el.radius * 2 + (strokeOffset * 2);
         } else if (el.type === 'polygon') {
-            x = el.x; y = el.y; w = el.size; h = el.size;
+            x = el.x - strokeOffset; 
+            y = el.y - strokeOffset; 
+            w = el.size + (strokeOffset * 2); 
+            h = el.size + (strokeOffset * 2);
         } else if (el.type === 'text' && ctx) {
-            const width = ctx.measureText(el.text).width;
-            const height = el.fontSize || 12;
-            x = el.x; y = el.y - height; w = width; h = height;
+            // FIX: Use robust metrics for accurate text selection bounding box
+            ctx.font = `${el.fontSize || 12}px Arial`;
+            const textMetrics = ctx.measureText(el.text);
+            const width = textMetrics.width;
+            // Use fallback estimates if bounding box properties are not supported by the browser
+            const ascent = textMetrics.actualBoundingBoxAscent || (el.fontSize * 0.8);
+            const descent = textMetrics.actualBoundingBoxDescent || (el.fontSize * 0.2);
+            
+            x = el.x; 
+            y = el.y - ascent;
+            w = width; 
+            h = ascent + descent;
+
+            // Add a small safety buffer for easier clicking/selection
+            const buffer = 5; 
+            x -= buffer;
+            y -= buffer;
+            w += 2 * buffer;
+            h += 2 * buffer;
+
         } else if (el.type === 'text') {
             const height = el.fontSize || 12;
             const width = (el.text.length * height) * 0.6;
@@ -429,11 +601,11 @@ function App() {
     const getSnapGuides = (currentElementId, canvasW, canvasH) => {
         const allGuides = { x: [], y: [] };
         
-        // 1. Canvas Edges and Center
+        // 1. Canvas Boundary Guides
         allGuides.x.push(0, canvasW / 2, canvasW);
         allGuides.y.push(0, canvasH / 2, canvasH);
         
-        // 2. Other Elements' Edges and Centers
+        // 2. Element Guides
         elements.forEach(el => {
             if (el.id === currentElementId) return;
 
@@ -442,6 +614,16 @@ function App() {
             allGuides.x.push(bounds.x, bounds.x + bounds.w / 2, bounds.x + bounds.w);
             allGuides.y.push(bounds.y, bounds.y + bounds.h / 2, bounds.y + bounds.h);
         });
+        
+        // 3. Grid Guides
+        if (showGrid && gridSize > 0) {
+            for (let i = 0; i <= canvasW; i += gridSize) {
+                allGuides.x.push(i);
+            }
+            for (let i = 0; i <= canvasH; i += gridSize) {
+                allGuides.y.push(i);
+            }
+        }
 
         allGuides.x = [...new Set(allGuides.x.map(Math.round))];
         allGuides.y = [...new Set(allGuides.y.map(Math.round))];
@@ -453,7 +635,6 @@ function App() {
         const tolerance = SNAP_TOLERANCE;
         const snap = { x: newX, y: newY, guides: { x: [], y: [] } };
         
-        // Check X-axis snapping
         const checkX = [
             { pos: newX, type: 'left' },             
             { pos: newX + newW / 2, type: 'center' },  
@@ -472,7 +653,6 @@ function App() {
             if (snap.guides.x.length > 0) break;
         }
 
-        // Check Y-axis snapping
         const checkY = [
             { pos: newY, type: 'top' },              
             { pos: newY + newH / 2, type: 'center' }, 
@@ -501,18 +681,22 @@ function App() {
         const ctx = ctxRef.current;
         if (!ctx) return false;
 
-        if (el.type === 'rect' || el.type === 'image') {
-            return x >= el.x && x <= el.x + el.width && y >= el.y && y <= el.y + el.height;
-        } else if (el.type === 'circle') {
-            const dx = x - (el.x + el.radius);
-            const dy = y - (el.y + el.radius);
-            return dx * dx + dy * dy <= el.radius * el.radius;
-        } else if (el.type === 'text') {
-            const bounds = getElementBounds(el, ctx);
+        // Use the robust bounds calculation for rectangular hit testing
+        const bounds = getElementBounds(el, ctx);
+        
+        if (el.type === 'rect' || el.type === 'image' || el.type === 'text' || el.type === 'polygon') {
+            // Check if point is within the element's bounding box
             return x >= bounds.x && x <= bounds.x + bounds.w && y >= bounds.y && y <= bounds.y + bounds.h;
-        } else if (el.type === 'polygon') {
-            drawPolygonPath(ctx, el);
-            return ctx.isPointInPath(x, y);
+        } else if (el.type === 'circle') {
+            // For circle, use a precise distance check if inside the bounding box
+            if (x < bounds.x || x > bounds.x + bounds.w || y < bounds.y || y > bounds.y + bounds.h) return false;
+            
+            const radius = el.radius + (el.strokeWidth || 0) / 2;
+            const cx = el.x + el.radius;
+            const cy = el.y + el.radius;
+            const dx = x - cx;
+            const dy = y - cy;
+            return dx * dx + dy * dy <= radius * radius;
         }
         return false;
     };
@@ -557,44 +741,123 @@ function App() {
             ctx.fillRect(pos.x - 4, pos.y - 4, handleSize, handleSize);
         });
     };
+    
+    const drawGrid = (ctx, width, height, size) => {
+        if (!size || size <= 0) return;
+        
+        ctx.save();
+        ctx.strokeStyle = '#e5e7eb'; 
+        ctx.lineWidth = 0.5;
+        
+        for (let x = 0; x <= width; x += size) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+
+        for (let y = 0; y <= height; y += size) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+        
+        ctx.restore();
+    };
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
 
+        // 1. Clear and Draw Base Background
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+        // 2. Draw Grid
+        if (showGrid) {
+            drawGrid(ctx, canvasSize.width, canvasSize.height, gridSize);
+        }
+
+        // 3. Draw Elements (Updated for Rotation & Opacity)
         elements.forEach(el => {
             ctx.save();
             
             const color = el.color || '#000000';
+            const strokeWidth = el.strokeWidth || 0;
+            const rotation = el.rotation || 0;
             
+            // --- Apply Opacity (FEATURE 2) ---
+            ctx.globalAlpha = el.opacity !== undefined ? el.opacity : 1; 
+
+            // --- Apply Rotation ---
+            if (rotation !== 0) {
+                let centerX, centerY;
+                
+                if (el.type === 'rect' || el.type === 'image' || el.type === 'polygon') {
+                    // Use actual width/height/size if available, otherwise fallback
+                    const w = el.width || el.size || 0;
+                    const h = el.height || el.size || 0;
+                    centerX = el.x + w / 2;
+                    centerY = el.y + h / 2;
+                } else if (el.type === 'circle') {
+                    centerX = el.x + el.radius;
+                    centerY = el.y + el.radius;
+                } else if (el.type === 'text') {
+                    // For text, rotation center is approximated at the center of the UNROTATED bounding box
+                    const bounds = getElementBounds(el, ctx);
+                    centerX = bounds.x + bounds.w / 2;
+                    centerY = bounds.y + bounds.h / 2;
+                }
+
+                if (centerX !== undefined && centerY !== undefined) {
+                    ctx.translate(centerX, centerY);
+                    ctx.rotate(rotation * Math.PI / 180);
+                    ctx.translate(-centerX, -centerY);
+                }
+            }
+            // --- End Rotation ---
+
+
+            // Setup path for shapes
             if (el.type === 'rect') {
                 ctx.beginPath();
                 ctx.rect(el.x, el.y, el.width, el.height);
             } else if (el.type === 'circle') {
                 ctx.beginPath();
                 ctx.arc(el.x + el.radius, el.y + el.radius, el.radius, 0, 2 * Math.PI);
-            } else if (el.type === 'text') {
-                ctx.fillStyle = color;
-                ctx.font = `${el.fontSize || 12}px Arial`;
-                ctx.fillText(el.text, el.x, el.y);
             } else if (el.type === 'polygon') {
                 drawPolygonPath(ctx, el);
             }
 
+            // Fill
             if (el.type !== 'text' && el.type !== 'image') {
                 ctx.fillStyle = color;
                 ctx.fill();
             }
 
+            // Stroke
+            if (strokeWidth > 0 && (el.type === 'rect' || el.type === 'circle' || el.type === 'polygon')) {
+                ctx.strokeStyle = el.strokeColor || '#000000';
+                ctx.lineWidth = strokeWidth;
+                ctx.stroke();
+            }
+            
+            // Text
+            if (el.type === 'text') {
+                ctx.fillStyle = color;
+                ctx.font = `${el.fontSize || 12}px Arial`;
+                ctx.fillText(el.text, el.x, el.y);
+            } 
+            
+            // Image
             if (el.type === 'image' && el.img) {
                 ctx.drawImage(el.img, el.x, el.y, el.width, el.height);
             }
             
+            // Draw Handles for Selected Element
             if (el.id === selectedId) {
                 const bounds = getElementBounds(el, ctx);
                 
@@ -608,13 +871,15 @@ function App() {
             ctx.restore();
         });
 
-        // --- DRAW ALIGNMENT GUIDES ---
-        ctx.save();
-        ctx.strokeStyle = '#ec4899'; // Pink/Magenta for guides
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 2]); // Dashed line
+        // Reset globalAlpha outside of restore for alignment guides
+        ctx.globalAlpha = 1;
 
-        // Draw Vertical Guides
+        // 4. DRAW ALIGNMENT GUIDES (On top of everything)
+        ctx.save();
+        ctx.strokeStyle = '#ec4899'; 
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]); 
+
         activeGuides.x.forEach(guideX => {
             ctx.beginPath();
             ctx.moveTo(guideX, 0);
@@ -622,7 +887,6 @@ function App() {
             ctx.stroke();
         });
 
-        // Draw Horizontal Guides
         activeGuides.y.forEach(guideY => {
             ctx.beginPath();
             ctx.moveTo(0, guideY);
@@ -631,9 +895,9 @@ function App() {
         });
         
         ctx.restore();
-        ctx.setLineDash([]); // Reset dashed line
+        ctx.setLineDash([]); 
 
-    }, [elements, canvasSize, selectedId, activeGuides]);
+    }, [elements, canvasSize, selectedId, activeGuides, showGrid, gridSize]); 
 
     const handleMouseDown = (e) => {
         if (contextMenu && e.button === 0) {
@@ -645,7 +909,6 @@ function App() {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        // Reset guides on start
         setActiveGuides({ x: [], y: [] }); 
 
         if (selectedId) {
@@ -663,6 +926,8 @@ function App() {
             if (isPointInElement(x, y, elements[i])) {
                 setSelectedId(elements[i].id);
                 setIsDragging(true);
+                
+                // Calculate drag offset based on element's core x/y 
                 setDragOffset({ x: x - elements[i].x, y: y - elements[i].y });
                 return;
             }
@@ -677,7 +942,7 @@ function App() {
         let y = e.clientY - rect.top;
         const shiftKey = e.shiftKey;
         
-        // Cursor logic (Unchanged)
+        // Cursor logic
         if (isDragging) {
             canvas.style.cursor = 'grabbing';
         } else if (isResizing) {
@@ -702,40 +967,62 @@ function App() {
             const originalEl = elements.find(el => el.id === selectedId);
             if (!originalEl) return;
 
-            // Calculate potential non-snapped position
-            let potentialX = x - dragOffset.x;
-            let potentialY = y - dragOffset.y;
+            // Calculate the potential core element position (no bounds/stroke adjustment yet)
+            let potentialCoreX = x - dragOffset.x;
+            let potentialCoreY = y - dragOffset.y;
             
             const bounds = getElementBounds(originalEl, ctxRef.current);
             const guides = getSnapGuides(selectedId, canvasSize.width, canvasSize.height);
             
-            // Apply snapping
+            // 1. Adjust potential coordinates to match the bounds top-left
+            const strokeOffset = (originalEl.strokeWidth || 0) / 2;
+            let potentialBoundsX = potentialCoreX - strokeOffset;
+            let potentialBoundsY = potentialCoreY - strokeOffset;
+            
+            // 2. Apply snap to the BOUNDS
             const snapResult = applySnap(
-                potentialX, 
-                potentialY, 
+                potentialBoundsX, 
+                potentialBoundsY, 
                 bounds.w, 
                 bounds.h, 
                 guides
             );
             
-            // Override position with snapped values
-            let finalX = snapResult.x;
-            let finalY = snapResult.y;
+            let finalSnapBoundsX = snapResult.x;
+            let finalSnapBoundsY = snapResult.y;
             
-            // Set active guides for drawing
             setActiveGuides(snapResult.guides);
 
 
             setElements(elements.map(el => {
                 if (el.id === selectedId) {
-                    return { ...el, x: finalX, y: finalY };
+                    
+                    if (el.type === 'text') {
+                        // For text, we apply the delta between the snapped bounds and the potential bounds 
+                        // to the core element x/y (baseline).
+                        const dx_snap = finalSnapBoundsX - potentialBoundsX;
+                        const dy_snap = finalSnapBoundsY - potentialBoundsY;
+
+                        return {
+                            ...el,
+                            x: potentialCoreX + dx_snap,
+                            y: potentialCoreY + dy_snap,
+                        };
+                    }
+                    
+                    // Shapes/Images: Element x/y is top-left corner (requires adjusting for stroke)
+                    return { 
+                        ...el, 
+                        x: finalSnapBoundsX + strokeOffset, 
+                        y: finalSnapBoundsY + strokeOffset 
+                    };
                 }
                 return el;
             }));
             return;
         } 
         
-        // --- Resizing Logic (Fixed Text Size Error) ---
+        // --- Resizing Logic ---
         if (isResizing && selectedId && resizeHandle) {
             const originalEl = elements.find(el => el.id === selectedId);
             if (!originalEl) return;
@@ -753,7 +1040,6 @@ function App() {
             let newH = bounds.h;
             let aspectRatio = bounds.w / bounds.h;
             
-            // Calculate base resize
             switch (resizeHandle) {
                 case 'tl':
                     newX = bounds.x + dx; newY = bounds.y + dy;
@@ -775,7 +1061,6 @@ function App() {
                     return;
             }
 
-            // Apply Aspect Ratio Lock (Shift Key)
             if (shiftKey && originalEl.type !== 'text') {
                 const lockedW = newW;
                 const lockedH = newH;
@@ -794,35 +1079,54 @@ function App() {
                 }
             }
             
-            // Finalize dimensions
             newW = Math.max(10, newW);
             newH = Math.max(10, newH);
 
             if (newW < 10) newX = bounds.x + bounds.w - newW;
             if (newH < 10) newY = bounds.y + bounds.h - newH;
 
-            setActiveGuides({ x: [], y: [] }); // Clear guides during resize
+            setActiveGuides({ x: [], y: [] }); 
 
-            // Apply new properties to the element
             setElements(elements.map(el => {
                 if (el.id === selectedId) {
+                    const strokeOffset = (el.strokeWidth || 0) / 2;
+
                     if (el.type === 'rect' || el.type === 'image') {
-                        return { ...el, x: newX, y: newY, width: newW, height: newH };
-                    } else if (el.type === 'circle') {
-                        const newRadius = Math.max(5, newW / 2);
-                        return { ...el, x: newX, y: newY, radius: newRadius };
-                    } else if (el.type === 'polygon') {
-                        const newSize = Math.max(20, Math.max(newW, newH));
-                        return { ...el, x: newX, y: newY, size: newSize };
-                    } else if (el.type === 'text') {
-                        // --- FIX IS HERE ---
-                        // Correctly calculates the new baseline (y) based on the new bounding box top (newY)
-                        // and the new desired height (newH).
-                        const newFontSize = Math.max(8, newH);
                         return { 
                             ...el, 
-                            x: newX, 
-                            y: newY + newH, 
+                            x: newX + strokeOffset, 
+                            y: newY + strokeOffset, 
+                            width: newW - (strokeOffset * 2), 
+                            height: newH - (strokeOffset * 2) 
+                        };
+                    } else if (el.type === 'circle') {
+                        // Radius excludes stroke
+                        const newRadius = Math.max(5, (newW - (strokeOffset * 2)) / 2);
+                        return { 
+                            ...el, 
+                            x: newX + strokeOffset, 
+                            y: newY + strokeOffset, 
+                            radius: newRadius 
+                        };
+                    } else if (el.type === 'polygon') {
+                        // Size excludes stroke
+                        const newSize = Math.max(20, Math.max(newW, newH) - (strokeOffset * 2));
+                        return { 
+                            ...el, 
+                            x: newX + strokeOffset, 
+                            y: newY + strokeOffset, 
+                            size: newSize 
+                        };
+                    } else if (el.type === 'text') {
+                        const newFontSize = Math.max(8, newH - 10); 
+                        
+                        const estimatedAscent = newFontSize * 0.8;
+                        const newTextY = newY + 5 + estimatedAscent; 
+                        
+                        return { 
+                            ...el, 
+                            x: newX + 5, 
+                            y: newTextY, 
                             fontSize: newFontSize 
                         }; 
                     }
@@ -832,7 +1136,6 @@ function App() {
             return;
         }
         
-        // If not dragging or resizing, clear guides
         if (!isDragging && !isResizing) {
             setActiveGuides({ x: [], y: [] });
         }
@@ -843,10 +1146,10 @@ function App() {
         setIsResizing(false);
         setResizeHandle(null);
         setResizeStartPoint({ x: 0, y: 0 }); 
-        setActiveGuides({ x: [], y: [] }); // Clear guides when done
+        setActiveGuides({ x: [], y: [] }); 
     };
     
-    // --- Context Menu Handlers (Unchanged) ---
+    // --- Context Menu Handlers ---
 
     const handleContextMenu = useCallback((e) => {
         e.preventDefault();
@@ -884,6 +1187,7 @@ function App() {
                 const elementToCopy = elements.find(el => el.id === elementId);
                 const { img, ...copyData } = elementToCopy;
                 setCopiedElement(copyData);
+                setToast({ message: "Element copied to clipboard.", type: 'success' });
             }
         } else if (action === 'paste') {
             if (copiedElement) {
@@ -892,6 +1196,8 @@ function App() {
                     id: Date.now(),
                     x: copiedElement.x + 20,
                     y: copiedElement.y + 20,
+                    rotation: copiedElement.rotation || 0,
+                    opacity: copiedElement.opacity || 1,
                 };
 
                 if (newElement.type === 'image' && newElement.src) {
@@ -905,35 +1211,64 @@ function App() {
                     setElements(prev => [...prev, newElement]);
                 }
                 setSelectedId(newElement.id);
+                setToast({ message: "Element pasted.", type: 'success' });
             }
         }
 
         setContextMenu(null);
     };
 
-    // --- Element Creation (Unchanged) ---
+    // --- Element Creation ---
 
     const addRect = () => {
         setElements([...elements, {
-            type: 'rect', x: 50, y: 50, width: 100, height: 100, color: '#ef4444', id: Date.now()
+            type: 'rect', x: 50, y: 50, width: 100, height: 100, 
+            color: '#ef4444', 
+            strokeWidth: 0, 
+            strokeColor: '#000000', 
+            rotation: 0, 
+            opacity: 1, // Feature 2
+            isGrouped: false, // Feature 1
+            id: Date.now()
         }]);
     };
 
     const addCircle = () => {
         setElements([...elements, {
-            type: 'circle', x: 200, y: 200, radius: 50, color: '#3b82f6', id: Date.now()
+            type: 'circle', x: 200, y: 200, radius: 50, 
+            color: '#3b82f6', 
+            strokeWidth: 0, 
+            strokeColor: '#000000', 
+            rotation: 0, 
+            opacity: 1, // Feature 2
+            isGrouped: false, // Feature 1
+            id: Date.now()
         }]);
     };
     
     const addTriangle = () => {
         setElements([...elements, {
-            type: 'polygon', x: 300, y: 50, sides: 3, size: 100, color: '#f59e0b', id: Date.now()
+            type: 'polygon', x: 300, y: 50, sides: 3, size: 100, 
+            color: '#f59e0b', 
+            strokeWidth: 0, 
+            strokeColor: '#000000', 
+            rotation: 0, 
+            opacity: 1, // Feature 2
+            isGrouped: false, // Feature 1
+            id: Date.now()
         }]);
     };
 
     const addPentagon = () => {
         setElements([...elements, {
-            type: 'polygon', x: 450, y: 50, sides: 5, size: 100, color: '#10b981', id: Date.now()
+            type: 'polygon', x: 450, y: 50, sides: 5, size: 100, 
+            color: '#10b981', 
+            strokeWidth: 0, 
+            strokeColor: '#000000', 
+            rotation: 0, 
+            opacity: 1, // Feature 2
+            isGrouped: false, // Feature 1
+            id: Date.now()
         }]);
     };
 
@@ -941,7 +1276,7 @@ function App() {
         const text = prompt("Enter text:", "Hello World");
         if (text) {
             setElements([...elements, {
-                type: 'text', x: 100, y: 100, text: text, fontSize: 24, color: '#000000', id: Date.now()
+                type: 'text', x: 100, y: 100, text: text, fontSize: 24, color: '#000000', rotation: 0, opacity: 1, isGrouped: false, id: Date.now() // Feature 1 & 2
             }]);
         }
     };
@@ -961,6 +1296,9 @@ function App() {
                         height: 200 * (img.height / img.width),
                         src: event.target.result, 
                         img: img,
+                        rotation: 0, 
+                        opacity: 1, // Feature 2
+                        isGrouped: false, // Feature 1
                         id: Date.now()
                     }]);
                 };
@@ -970,7 +1308,81 @@ function App() {
         }
     };
     
-    // --- Export Handler (Unchanged) ---
+    // --- EXPORT/SAVE/LOAD HANDLERS ---
+
+    const handleSaveCanvas = () => {
+        try {
+            const canvasData = {
+                canvasSize,
+                elements: elements.map(({ img, ...rest }) => rest),
+                version: '1.0',
+                savedAt: new Date().toISOString()
+            };
+
+            const dataStr = JSON.stringify(canvasData, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `canvas-design-${Date.now()}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            setToast({ message: 'Canvas saved successfully!', type: 'success' });
+        } catch (error) {
+            console.error('Save failed:', error);
+            setToast({ message: 'Failed to save canvas.', type: 'error' });
+        }
+    };
+
+    const handleLoadCanvas = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const canvasData = JSON.parse(e.target.result);
+                
+                if (!canvasData.elements || !canvasData.canvasSize) {
+                    throw new Error('Invalid canvas file format');
+                }
+
+                setCanvasSize(canvasData.canvasSize);
+                setHistory([[]]);
+                setHistoryIndex(0);
+
+                const loadedElements = canvasData.elements.map(el => {
+                    if (el.opacity === undefined) el.opacity = 1; // Ensure opacity compatibility
+                    if (el.isGrouped === undefined) el.isGrouped = false; // Ensure grouping compatibility
+                    
+                    if (el.type === 'image' && el.src) {
+                        const img = new Image();
+                        img.onload = () => {
+                            setElements(prev => prev.map(p => p.id === el.id ? { ...p, img: img } : p));
+                        };
+                        img.src = el.src;
+                        return { ...el, img: undefined };
+                    }
+                    return el;
+                });
+
+                setElements(loadedElements);
+                setSelectedId(null);
+                
+                setToast({ message: 'Canvas loaded successfully!', type: 'success' });
+            } catch (error) {
+                console.error('Load failed:', error);
+                setToast({ message: 'Failed to load canvas: Invalid file format.', type: 'error' });
+            }
+        };
+        
+        reader.readAsText(file);
+        event.target.value = ''; 
+    };
 
     const handleExport = async () => {
         try {
@@ -992,11 +1404,180 @@ function App() {
             document.body.appendChild(link);
             link.click();
             link.remove();
+            
+            setToast({ message: 'PDF export successful!', type: 'success' });
         } catch (error) {
             console.error("Export failed:", error);
-            alert("Failed to export PDF");
+            setToast({ message: 'Failed to export PDF.', type: 'error' });
         }
     };
+    
+    // --- COMPLETE KEYBOARD SHORTCUTS ---
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            const isCtrl = e.ctrlKey || e.metaKey;
+            
+            if (isCtrl && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                handleUndo();
+                return;
+            }
+            
+            if ((isCtrl && e.key === 'y') || (isCtrl && e.shiftKey && e.key === 'z')) {
+                e.preventDefault();
+                handleRedo();
+                return;
+            }
+
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedId) {
+                    e.preventDefault();
+                    setElements(prevElements => prevElements.filter(el => el.id !== selectedId));
+                    setSelectedId(null);
+                }
+                return;
+            }
+
+            if (selectedId && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                
+                const nudgeAmount = e.shiftKey ? 10 : 1;
+                
+                setElements(prevElements => 
+                    prevElements.map(el => {
+                        if (el.id === selectedId) {
+                            let newX = el.x;
+                            let newY = el.y;
+                            
+                            switch(e.key) {
+                                case 'ArrowUp':
+                                    newY -= nudgeAmount;
+                                    break;
+                                case 'ArrowDown':
+                                    newY += nudgeAmount;
+                                    break;
+                                case 'ArrowLeft':
+                                    newX -= nudgeAmount;
+                                    break;
+                                case 'ArrowRight':
+                                    newX += nudgeAmount;
+                                    break;
+                            }
+                            
+                            return { ...el, x: newX, y: newY };
+                        }
+                        return el;
+                    })
+                );
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                setSelectedId(null);
+                setContextMenu(null);
+            }
+
+            // COPY (Ctrl+C)
+            if (isCtrl && e.key === 'c' && selectedId) {
+                e.preventDefault();
+                const elementToCopy = elements.find(el => el.id === selectedId);
+                if (elementToCopy) {
+                    const { img, ...copyData } = elementToCopy;
+                    setCopiedElement(copyData);
+                    setToast({ message: "Element copied to clipboard.", type: 'success' });
+                }
+            }
+
+            // PASTE (Ctrl+V)
+            if (isCtrl && e.key === 'v' && copiedElement) {
+                e.preventDefault();
+                const newElement = {
+                    ...copiedElement,
+                    id: Date.now(),
+                    x: copiedElement.x + 20,
+                    y: copiedElement.y + 20,
+                    rotation: copiedElement.rotation || 0,
+                    opacity: copiedElement.opacity || 1,
+                };
+
+                if (newElement.type === 'image' && newElement.src) {
+                    const img = new Image();
+                    img.onload = () => {
+                        setElements(prev => prev.map(el => el.id === newElement.id ? { ...el, img: img } : el));
+                    };
+                    img.src = newElement.src;
+                    setElements(prev => [...prev, { ...newElement, img: undefined }]);
+                } else {
+                    setElements(prev => [...prev, newElement]);
+                }
+                setSelectedId(newElement.id);
+                setToast({ message: "Element pasted.", type: 'success' });
+            }
+
+            if (isCtrl && e.key === 'a') {
+                e.preventDefault();
+                if (elements.length > 0) {
+                    setSelectedId(elements[elements.length - 1].id);
+                }
+            }
+
+            if (isCtrl && e.key === 'd' && selectedId) {
+                e.preventDefault();
+                const elementToDuplicate = elements.find(el => el.id === selectedId);
+                if (elementToDuplicate) {
+                    const { img, ...copyData } = elementToDuplicate;
+                    const newElement = {
+                        ...copyData,
+                        id: Date.now(),
+                        x: copyData.x + 20,
+                        y: copyData.y + 20,
+                        rotation: copyData.rotation || 0,
+                        opacity: copyData.opacity || 1,
+                    };
+
+                    if (newElement.type === 'image' && newElement.src) {
+                        const img = new Image();
+                        img.onload = () => {
+                            setElements(prev => prev.map(el => el.id === newElement.id ? { ...el, img: img } : el));
+                        };
+                        img.src = newElement.src;
+                        setElements(prev => [...prev, { ...newElement, img: undefined }]);
+                    } else {
+                        setElements(prev => [...prev, newElement]);
+                    }
+                    setSelectedId(newElement.id);
+                }
+            }
+
+            if (isCtrl && e.key === ']' && selectedId) {
+                e.preventDefault();
+                moveLayerToExtreme(selectedId, 'front');
+            }
+
+            if (isCtrl && e.key === '[' && selectedId) {
+                e.preventDefault();
+                moveLayerToExtreme(selectedId, 'back');
+            }
+
+            if (isCtrl && e.shiftKey && e.key === '}' && selectedId) {
+                e.preventDefault();
+                moveLayer(selectedId, 'forward');
+            }
+
+            if (isCtrl && e.shiftKey && e.key === '{' && selectedId) {
+                e.preventDefault();
+                moveLayer(selectedId, 'backward');
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [selectedId, elements, copiedElement, handleUndo, handleRedo, moveLayer, moveLayerToExtreme, setElements, setSelectedId, setCopiedElement, setContextMenu, setToast]);
+
 
     return (
         <div className="min-h-screen flex flex-col bg-gradient-to-br from-emerald-900 via-teal-900 to-emerald-900 font-sans text-gray-800">
@@ -1009,7 +1590,15 @@ function App() {
                     <h1 className="text-xl font-bold text-white">Canvas Studio</h1>
                 </div>
                 
-                {/* UNDO / REDO BUTTONS */}
+                {/* Visual Clipboard Indicator */}
+                {copiedElement && (
+                    <div className="flex items-center gap-2 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-lg border border-yellow-400/30 text-sm">
+                        <Clipboard size={16} />
+                        <span>Clipboard: {copiedElement.type} copied</span>
+                    </div>
+                )}
+                
+                {/* UNDO / REDO / SAVE / LOAD BUTTONS */}
                 <div className="flex items-center gap-4">
                      <button
                         onClick={handleUndo}
@@ -1023,11 +1612,40 @@ function App() {
                         onClick={handleRedo}
                         disabled={historyIndex === history.length - 1}
                         className={`p-2 rounded-lg transition ${historyIndex === history.length - 1 ? 'text-gray-500 bg-white/5' : 'text-white bg-white/20 hover:bg-white/30'}`}
-                        title="Redo (Ctrl + Y)"
+                        title="Redo (Ctrl + Y or Ctrl + Shift + Z)"
                     >
                         <Redo size={18} />
                     </button>
                     
+                    {/* SAVE BUTTON */}
+                    <button
+                        onClick={handleSaveCanvas}
+                        className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg hover:from-blue-700 hover:to-blue-800 transition shadow-lg font-medium"
+                        title="Save design as JSON"
+                    >
+                        <Save size={18} />
+                        Save Canvas
+                    </button>
+
+                    {/* LOAD BUTTON */}
+                    <button
+                        onClick={() => loadFileInputRef.current.click()}
+                        className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-purple-800 transition shadow-lg font-medium"
+                        title="Load design from JSON"
+                    >
+                        <FolderOpen size={18} />
+                        Load Canvas
+                    </button>
+                    
+                    {/* Hidden Input for loading JSON files */}
+                    <input
+                        type="file"
+                        ref={loadFileInputRef}
+                        onChange={handleLoadCanvas}
+                        accept=".json"
+                        className="hidden"
+                    />
+
                     <button
                         onClick={handleExport}
                         className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-lg hover:from-emerald-700 hover:to-teal-700 transition shadow-lg font-medium"
@@ -1042,6 +1660,7 @@ function App() {
                 {/* Sidebar Controls */}
                 <div className="w-72 bg-white/10 backdrop-blur-lg border-r border-white/20 flex flex-col overflow-y-auto">
 
+                    {/* CANVAS SIZE SECTION */}
                     <div className="p-6 border-b border-white/10">
                         <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Canvas Size</h2>
                         <div className="grid grid-cols-2 gap-3">
@@ -1065,7 +1684,40 @@ function App() {
                             </div>
                         </div>
                     </div>
+                    
+                    {/* GRID CONTROLS */}
+                    <div className="p-6 border-b border-white/10">
+                        <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Grid & Snapping</h2>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <Grid size={18} className="text-emerald-300" />
+                                <span className="text-sm font-medium text-white">Show Grid</span>
+                            </div>
+                            <button
+                                onClick={() => setShowGrid(!showGrid)}
+                                className={`w-12 h-6 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${showGrid ? 'bg-emerald-500' : 'bg-gray-600'}`}
+                            >
+                                <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${showGrid ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                            </button>
+                        </div>
+                        
+                        <div className="flex flex-col">
+                            <label className="text-xs text-emerald-300 mb-1">Grid Size (px)</label>
+                            <input
+                                type="number"
+                                value={gridSize}
+                                min="10"
+                                step="10"
+                                onChange={(e) => setGridSize(Math.max(10, parseInt(e.target.value)))}
+                                className="bg-white/10 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+                                disabled={!showGrid}
+                            />
+                            <p className="text-xs text-gray-400 mt-1 italic">Snaps to grid when enabled.</p>
+                        </div>
+                    </div>
 
+
+                    {/* ELEMENTS CREATION SECTION */}
                     <div className="p-6">
                         <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Elements</h2>
                         <div className="grid grid-cols-3 gap-3">
@@ -1106,7 +1758,7 @@ function App() {
                         </div>
                     </div>
 
-                    {/* Element Properties and Color Picker (NEW Layer Controls integrated here) */}
+                    {/* Element Properties (FIXED POSITIONING: Placed here to ensure visibility without scrolling past Creation) */}
                     {selectedElement && (
                         <ElementProperties 
                             selectedElement={selectedElement}
@@ -1114,6 +1766,7 @@ function App() {
                             setSelectedId={setSelectedId}
                             moveLayer={moveLayer} 
                             moveLayerToExtreme={moveLayerToExtreme} 
+                            toggleGroupStatus={toggleGroupStatus} // Feature 1
                         />
                     )}
                 </div>
@@ -1149,6 +1802,15 @@ function App() {
                     copiedElement={copiedElement}
                     onAction={handleAction}
                     onClose={handleCloseMenu}
+                />
+            )}
+            
+            {/* RENDER TOAST NOTIFICATION */}
+            {toast && (
+                <Toast 
+                    message={toast.message} 
+                    type={toast.type} 
+                    onClose={() => setToast(null)}
                 />
             )}
         </div>
