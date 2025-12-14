@@ -137,12 +137,14 @@ Returns a downloadable PDF file.
 cd backend
 npm install
 npm start
+npm run dev(if nodemon is used)
 ```
 
 Server will run at:
 
 ```
-http://localhost:5000
+echo Backend running on http://localhost:3000
+echo Frontend running on http://localhost:5173
 ```
 
 ---
