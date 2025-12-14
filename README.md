@@ -7,12 +7,20 @@ A full-stack web application that allows users to create, edit, and export canva
 ## 🚀 Features
 
 * Initialize a canvas with custom width and height
-* Add basic shapes:
+* Add multiple drawable elements:
 
   * Rectangles
   * Circles
+  * Triangles
+  * Pentagons
 * Add text elements with custom styling
-* Add images using image URLs or file upload
+* Add images via file upload
+* Select, move, and visually highlight elements on the canvas
+* Change element colors dynamically
+* Layer management (bring forward / send backward)
+* Delete selected elements
+* Save canvas state
+* Load previously saved canvas designs
 * Live preview of canvas on the frontend
 * Export the final canvas as a **high-quality PDF**
 * Basic PDF size optimization
@@ -137,7 +145,6 @@ Returns a downloadable PDF file.
 cd backend
 npm install
 npm start
-npm run dev(if nodemon is used)
 ```
 
 Server will run at:
@@ -155,12 +162,6 @@ echo Frontend running on http://localhost:5173
 cd frontend
 npm install
 npm start
-```
-
-Frontend will run at:
-
-```
-http://localhost:3000
 ```
 
 ---
@@ -209,4 +210,3 @@ B.Tech, IIT Mandi
 ---
 
 ⭐ If you find this project useful, feel free to star the repository!
-
