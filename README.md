@@ -25,6 +25,60 @@ A full-stack web application that allows users to create, edit, and export canva
 * Export the final canvas as a **high-quality PDF**
 * Basic PDF size optimization
 
+## ✨ New Features & Functionality
+
+### 🎨 Styling & Appearance
+| Feature | Description |
+|------|------------|
+| Element Opacity Control | Control transparency (opacity) of all non-image elements using a dedicated slider in the properties panel. |
+| Color Picker Presets | 8 pre-defined color swatches for quick and efficient color selection in the ElementProperties panel. |
+
+---
+
+### 🔄 Element Manipulation
+| Feature | Description |
+|------|------------|
+| Rotation Control | Rotate shapes and text using a slider or quick-rotate button. Canvas rendering logic correctly handles transformations. |
+| Live Text Editing | Edit text content via a textarea in the properties sidebar after creation. |
+
+---
+
+### 🧠 User Experience (UX)
+| Feature | Description |
+|------|------------|
+| Toast Notification System | Non-blocking toast notifications replace browser alerts for actions like Save, Load, Copy/Paste, Undo/Redo, and Export. |
+| Visual Clipboard Indicator | A small header banner confirms when an element is copied and ready to paste. |
+
+---
+
+### 📦 Grouping (Conceptual)
+| Feature | Description |
+|------|------------|
+| Group / Ungroup | Toggles an `isGrouped` boolean on selected elements, laying the foundation for multi-selection and complex grouping logic. |
+
+---
+
+### 🧭 Sidebar & Interaction Improvements
+- **Sidebar UX Optimization (CRITICAL):**  
+  Reworked sidebar flow to ensure ElementProperties (color, rotation, opacity, layers) is immediately visible without scrolling.
+
+- **Fixed Text Element Selection:**  
+  Improved hit detection logic using robust bounding box calculations so text elements can be selected from any visible area.
+
+---
+
+### 📐 Grid & Alignment
+| Feature | Description |
+|------|------------|
+| Grid Snapping | Visual grid with snap-to-grid support during drag and resize operations. |
+
+---
+
+### 🎯 Basic Styling Support
+| Feature | Description |
+|------|------------|
+| Stroke Styling | Shapes (rect, circle, polygon) now support configurable `strokeWidth` and `strokeColor`. |
+
 ---
 
 ## 🛠️ Tech Stack
