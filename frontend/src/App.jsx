@@ -1,27 +1,25 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Square, Circle, Type, Image as ImageIcon, Download, MousePointer2, Triangle, Hexagon, Palette, Undo, Redo, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Save, FolderOpen, Grid, PenTool, RotateCw, Clipboard, CheckCircle, XCircle, Ungroup, Group } from 'lucide-react'; 
+import { Square, Circle, Type, Image as ImageIcon, Download, MousePointer2, Triangle, Hexagon, Palette, Undo, Redo, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Save, FolderOpen, Grid, PenTool, RotateCw, Clipboard, CheckCircle, XCircle, Ungroup, Group } from 'lucide-react';
 
 // --- Constants ---
+const BACKEND_URL = 'http://localhost:3000'; // Define backend URL
 const RESIZE_SENSITIVITY_FACTOR = 0.6;
-const MAX_HISTORY_LENGTH = 50; 
-const SNAP_TOLERANCE = 5; // Pixels distance to snap
-// FEATURE 3: Color Presets
-const COLOR_PRESETS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#000000', '#ffffff', '#6366f1', '#e879f9']; 
+const MAX_HISTORY_LENGTH = 50;
+const SNAP_TOLERANCE = 5;
+const TEXT_BOUNDING_BUFFER = 5;
+const COLOR_PRESETS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#000000', '#ffffff', '#6366f1', '#e879f9'];
 
 // --- Toast/Notification Component ---
-
 const Toast = ({ message, type, onClose }) => {
     const icon = type === 'success' ? <CheckCircle size={20} /> : <XCircle size={20} />;
     const colorClass = type === 'success' ? 'bg-emerald-600' : 'bg-red-600';
-
     useEffect(() => {
         const timer = setTimeout(() => {
             onClose();
         }, 3000);
         return () => clearTimeout(timer);
     }, [onClose]);
-
     return (
         <div className={`fixed bottom-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white flex items-center gap-3 transition-opacity duration-300 ${colorClass}`}>
             {icon}
@@ -33,11 +31,10 @@ const Toast = ({ message, type, onClose }) => {
     );
 };
 
-
 // --- Context Menu Component (Externalized) ---
-
 const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onClose }) => {
     const isElementSelected = elementId !== null && elementId === selectedId;
+    const isCopiedElementArray = Array.isArray(copiedElement) && copiedElement.length > 0;
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -52,19 +49,33 @@ const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onC
     return (
         <div
             className="custom-context-menu absolute z-50 rounded-lg shadow-xl bg-gray-800 text-white p-1 border border-gray-700"
-            style={{ top: y, left: x, minWidth: 160 }}
-            onMouseDown={(e) => e.stopPropagation()} 
+            style={{ top: y, left: x, minWidth: 180 }}
+            onMouseDown={(e) => e.stopPropagation()}
         >
             <ul className="list-none p-0 m-0">
-                <li className="px-3 py-2 text-sm text-gray-400">Save Image As... (Placeholder)</li>
+                
+                <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-indigo-600 rounded-md transition ${isElementSelected ? '' : 'opacity-50 cursor-not-allowed'}`}
+                    onClick={isElementSelected ? () => onAction('bring-front') : null}>
+                    Bring to Front (Ctrl+])
+                </li>
+                <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-indigo-600 rounded-md transition ${isElementSelected ? '' : 'opacity-50 cursor-not-allowed'}`}
+                    onClick={isElementSelected ? () => onAction('send-back') : null}>
+                    Send to Back (Ctrl+[)
+                </li>
+                <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-indigo-600 rounded-md transition ${isElementSelected ? '' : 'opacity-50 cursor-not-allowed'}`}
+                    onClick={isElementSelected ? () => onAction('duplicate') : null}>
+                    Duplicate (Ctrl+D)
+                </li>
+
+                <hr className="my-1 border-gray-700" />
                 
                 <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-emerald-600 rounded-md transition ${isElementSelected ? '' : 'opacity-50 cursor-not-allowed'}`}
                     onClick={isElementSelected ? () => onAction('copy') : null}>
                     Copy (Ctrl+C)
                 </li>
                 
-                <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-emerald-600 rounded-md transition ${copiedElement ? '' : 'opacity-50 cursor-not-allowed'}`}
-                    onClick={copiedElement ? () => onAction('paste') : null}>
+                <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-emerald-600 rounded-md transition ${isCopiedElementArray ? '' : 'opacity-50 cursor-not-allowed'}`}
+                    onClick={isCopiedElementArray ? () => onAction('paste') : null}>
                     Paste (Ctrl+V)
                 </li>
                 
@@ -80,8 +91,7 @@ const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onC
 };
 
 // --- Element Properties Component (Externalized) ---
-
-const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLayer, moveLayerToExtreme, toggleGroupStatus }) => {
+const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveLayer, moveLayerToExtreme, toggleGroupStatus }) => {
     
     const isImage = selectedElement?.type === 'image';
     const isText = selectedElement?.type === 'text';
@@ -91,19 +101,18 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
         return null;
     }
 
-    // Styles
-    const currentColor = selectedElement.color || '#000000'; 
+    const currentColor = selectedElement.color || '#000000';
     const currentFontSize = selectedElement.fontSize || 24;
     const currentStrokeWidth = selectedElement.strokeWidth || 0;
     const currentStrokeColor = selectedElement.strokeColor || '#000000';
     const currentRotation = selectedElement.rotation || 0;
-    const currentOpacity = selectedElement.opacity !== undefined ? selectedElement.opacity : 1; 
+    const currentOpacity = selectedElement.opacity !== undefined ? selectedElement.opacity : 1;
 
     const handleStyleChange = (key, value) => {
-         setElements(prevElements => 
-            prevElements.map(el => 
-                el.id === selectedElement.id 
-                    ? { ...el, [key]: value } 
+          setElements(prevElements =>
+            prevElements.map(el =>
+                el.id === selectedElement.id
+                    ? { ...el, [key]: value }
                     : el
             )
         );
@@ -115,33 +124,31 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
     const handleStrokeColorChange = (e) => handleStyleChange('strokeColor', e.target.value);
     const handleStrokeWidthChange = (e) => handleStyleChange('strokeWidth', parseInt(e.target.value) || 0);
     const handleRotationChange = (e) => handleStyleChange('rotation', parseInt(e.target.value) || 0);
-    const handleOpacityChange = (e) => handleStyleChange('opacity', parseFloat(e.target.value)); 
-
+    const handleOpacityChange = (e) => handleStyleChange('opacity', parseFloat(e.target.value));
+    
     const handleDelete = () => {
         setElements(prevElements => prevElements.filter(el => el.id !== selectedElement.id));
-        setSelectedId(null);
+        setSelectedIds([]);
     };
     
-    // FEATURE 1: Grouping
     const isGrouped = selectedElement.isGrouped || false;
 
-
     return (
-        <div className="p-6 border-t border-white/10 bg-white/5"> {/* Removed mt-auto here */}
-            <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Selected Element</h2>
+        <div className="p-6 border-t border-white/10 bg-white/5">
+            <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Selected Element (Primary)</h2>
             <p className="text-xs text-emerald-300 mb-4">ID: {selectedElement.id}</p>
             
             {/* Text Content Input */}
             {isText && (
                  <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                    <label className="text-xs text-emerald-300 mb-2 block">Text Content</label>
-                    <textarea
-                        rows="3"
-                        value={selectedElement.text}
-                        onChange={handleTextContentChange}
-                        className="w-full bg-white/20 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
-                    />
-                </div>
+                     <label className="text-xs text-emerald-300 mb-2 block">Text Content</label>
+                     <textarea
+                         rows="3"
+                         value={selectedElement.text}
+                         onChange={handleTextContentChange}
+                         className="w-full bg-white/20 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+                     />
+                 </div>
             )}
             
             {/* Fill Color Picker Section */}
@@ -162,7 +169,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
                         />
                     </div>
                     
-                    {/* FEATURE 3: Color Presets */}
+                    {/* Color Presets */}
                     <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10 mt-2">
                         {COLOR_PRESETS.map((color) => (
                             <button
@@ -176,8 +183,6 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
                     </div>
                 </div>
             )}
-
-
             {/* Stroke/Border Controls */}
             {isShape && (
                 <div className="mb-4 p-3 bg-white/10 rounded-lg">
@@ -215,45 +220,44 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
             
             {/* Opacity Control */}
              <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                <label className="text-xs text-emerald-300 mb-2 block">Opacity ({Math.round(currentOpacity * 100)}%)</label>
-                <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={currentOpacity}
-                    onChange={handleOpacityChange}
-                    className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                />
-            </div>
+                 <label className="text-xs text-emerald-300 mb-2 block">Opacity ({Math.round(currentOpacity * 100)}%)</label>
+                 <input
+                     type="range"
+                     min="0"
+                     max="1"
+                     step="0.01"
+                     value={currentOpacity}
+                     onChange={handleOpacityChange}
+                     className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                 />
+             </div>
 
             {/* Rotation Control */}
             {!isImage && (
                  <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                            <RotateCw size={18} className="text-emerald-300" />
-                            <span className="text-sm font-medium text-white">Rotation ({currentRotation}°)</span>
-                        </div>
-                        <button
-                            onClick={() => handleStyleChange('rotation', (currentRotation + 45) % 360)}
-                            className="p-1 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition"
-                            title="Rotate 45 degrees"
-                        >
-                            <RotateCw size={16} />
-                        </button>
-                    </div>
-                    <input
-                        type="range"
-                        min="0"
-                        max="360"
-                        value={currentRotation}
-                        onChange={handleRotationChange}
-                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                    />
-                </div>
+                     <div className="flex items-center justify-between mb-2">
+                         <div className="flex items-center gap-2">
+                             <RotateCw size={18} className="text-emerald-300" />
+                             <span className="text-sm font-medium text-white">Rotation ({currentRotation}°)</span>
+                         </div>
+                         <button
+                             onClick={() => handleStyleChange('rotation', (currentRotation + 45) % 360)}
+                             className="p-1 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition"
+                             title="Rotate 45 degrees"
+                         >
+                             <RotateCw size={16} />
+                         </button>
+                     </div>
+                     <input
+                         type="range"
+                         min="0"
+                         max="360"
+                         value={currentRotation}
+                         onChange={handleRotationChange}
+                         className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                     />
+                 </div>
             )}
-
 
             {/* Font Size Control for Text */}
             {isText && (
@@ -270,7 +274,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
                 </div>
             )}
             
-            {/* FEATURE 1: Grouping Button (Conceptual) */}
+            {/* Grouping Button (Conceptual) */}
             <button
                 onClick={() => toggleGroupStatus(selectedElement.id)}
                 className={`mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-semibold transition ${isGrouped ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-400/30 hover:bg-indigo-700/40' : 'bg-gray-500/20 text-gray-300 border border-gray-400/30 hover:bg-gray-600/30'}`}
@@ -281,31 +285,28 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
             
             {/* Layer Controls */}
              <div className="mb-4 mt-4">
-                <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Layer Order</h3>
-                <div className="grid grid-cols-4 gap-2">
-                    <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front (Ctrl+])">
-                        <ChevronsUp size={16} />
-                    </button>
-                    <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward (Ctrl+Shift+])">
-                        <ChevronUp size={16} />
-                    </button>
-                    <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward (Ctrl+Shift+[)">
-                        <ChevronDown size={16} />
-                    </button>
-                    <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back (Ctrl+[)">
-                        <ChevronsDown size={16} />
-                    </button>
-                </div>
-            </div>
-
-
+                 <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Layer Order</h3>
+                 <div className="grid grid-cols-4 gap-2">
+                     <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front (Ctrl+])">
+                         <ChevronsUp size={16} />
+                     </button>
+                     <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward (Ctrl+Shift+])">
+                         <ChevronUp size={16} />
+                     </button>
+                     <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward (Ctrl+Shift+[)">
+                         <ChevronDown size={16} />
+                     </button>
+                     <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back (Ctrl+[)">
+                         <ChevronsDown size={16} />
+                     </button>
+                 </div>
+             </div>
             <button
                 onClick={handleDelete}
                 className="mt-4 w-full bg-red-500/20 text-red-200 border border-red-400/30 py-2 rounded-md text-xs font-semibold hover:bg-red-500/30 transition"
             >
                 Delete Element (Del/Backspace)
             </button>
-
             <p className="text-xs text-emerald-300 mt-2 italic">Right-click on the canvas element for more actions.</p>
         </div>
     );
@@ -315,42 +316,31 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedId, moveLa
 function App() {
     const [canvasSize, setCanvasSize] = useState({ width: 1000, height: 1000});
     const [elements, setElements] = useState([]);
-    const [selectedId, setSelectedId] = useState(null);
+    
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [projectId, setProjectId] = useState(null);
+    
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
     
     const [isResizing, setIsResizing] = useState(false);
-    const [resizeHandle, setResizeHandle] = useState(null); 
+    const [resizeHandle, setResizeHandle] = useState(null);
     const [resizeStartPoint, setResizeStartPoint] = useState({ x: 0, y: 0 });
-
     const [contextMenu, setContextMenu] = useState(null);
-    const [copiedElement, setCopiedElement] = useState(null); 
+    const [copiedElement, setCopiedElement] = useState([]);
     
-    // --- UNDO/REDO STATE ---
-    const [history, setHistory] = useState([[]]); 
+    const [history, setHistory] = useState([[]]);
     const [historyIndex, setHistoryIndex] = useState(0);
     
-    // --- SNAP GUIDES STATE ---
-    const [activeGuides, setActiveGuides] = useState({ x: [], y: [] }); 
-
-    // --- GRID STATE ---
+    const [activeGuides, setActiveGuides] = useState({ x: [], y: [] });
     const [showGrid, setShowGrid] = useState(false);
-    const [gridSize, setGridSize] = useState(50); 
+    const [gridSize, setGridSize] = useState(50);
     
-    // --- TOAST STATE ---
-    const [toast, setToast] = useState(null); 
-    // --- END TOAST STATE ---
-
-    // --- EXPORT SETTINGS STATE ---
-    const [exportSettings, setExportSettings] = useState({
-        quality: 'medium', 
-        dpi: 300,
-        orientation: 'portrait' 
-    });
-
+    const [toast, setToast] = useState(null);
+    
     const canvasRef = useRef(null);
     const fileInputRef = useRef(null);
-    const loadFileInputRef = useRef(null); 
+    const loadFileInputRef = useRef(null);
     
     const ctxRef = useRef(null);
     
@@ -360,37 +350,32 @@ function App() {
         }
     }, []);
 
-    const selectedElement = elements.find(el => el.id === selectedId);
+    const selectedElements = elements.filter(el => selectedIds.includes(el.id));
+    const primarySelected = selectedElements[selectedElements.length - 1] || null;
 
-
-    // --- FEATURE 1: Grouping Logic Placeholder ---
     const toggleGroupStatus = useCallback((id) => {
         const element = elements.find(el => el.id === id);
         const isCurrentlyGrouped = element?.isGrouped || false;
         
-        setElements(prevElements => 
-            prevElements.map(el => 
-                el.id === id 
-                    ? { ...el, isGrouped: !isCurrentlyGrouped } 
+        setElements(prevElements =>
+            prevElements.map(el =>
+                el.id === id
+                    ? { ...el, isGrouped: !isCurrentlyGrouped }
                     : el
             )
         );
         setToast({ message: isCurrentlyGrouped ? 'Element ungrouped (Concept).' : 'Element marked as grouped (Concept).', type: 'success' });
     }, [elements, setToast]);
 
-
-    // --- HISTORY MANAGEMENT ---
-
     const saveHistory = useCallback((newElements) => {
         setHistory(prevHistory => {
             const newHistory = prevHistory.slice(0, historyIndex + 1);
             
             if (JSON.stringify(newHistory[newHistory.length - 1]) === JSON.stringify(newElements)) {
-                return prevHistory; 
+                return prevHistory;
             }
-
             if (newHistory.length >= MAX_HISTORY_LENGTH) {
-                newHistory.shift(); 
+                newHistory.shift();
             } else {
                 setHistoryIndex(newHistory.length);
             }
@@ -398,9 +383,9 @@ function App() {
             return [...newHistory, newElements];
         });
     }, [historyIndex]);
-
+    
     const isIgnoringHistory = useRef(false);
-
+    
     useEffect(() => {
         if (isIgnoringHistory.current) {
             isIgnoringHistory.current = false;
@@ -410,11 +395,10 @@ function App() {
         const timeout = setTimeout(() => {
             const serializableElements = elements.map(({ img, ...rest }) => rest);
             saveHistory(serializableElements);
-        }, 100); 
-
+        }, 100);
+        
         return () => clearTimeout(timeout);
     }, [elements, saveHistory]);
-
 
     const handleUndo = useCallback(() => {
         if (historyIndex > 0) {
@@ -431,13 +415,12 @@ function App() {
                         setElements(prev => prev.map(p => p.id === el.id ? { ...p, img: img } : p));
                     };
                     img.src = el.src;
-                    return { ...el, img: img }; 
+                    return { ...el, img: img };
                 }
                 return el;
             });
-
             setElements(newElements);
-            setSelectedId(null);
+            setSelectedIds([]);
             setToast({ message: 'Undo successful.', type: 'success' });
         } else {
             setToast({ message: 'Nothing left to undo.', type: 'error' });
@@ -451,7 +434,6 @@ function App() {
             setHistoryIndex(newIndex);
             
             const elementsToLoad = history[newIndex];
-
             const newElements = elementsToLoad.map(el => {
                 if (el.type === 'image' && el.src) {
                     const img = new Image();
@@ -465,21 +447,17 @@ function App() {
             });
             
             setElements(newElements);
-            setSelectedId(null);
+            setSelectedIds([]);
             setToast({ message: 'Redo successful.', type: 'success' });
         } else {
             setToast({ message: 'Nothing left to redo.', type: 'error' });
         }
     }, [history, historyIndex, setToast]);
 
-
-    // --- LAYER MANAGEMENT FUNCTIONS ---
-
     const moveLayer = useCallback((id, direction) => {
         setElements(prevElements => {
             const index = prevElements.findIndex(el => el.id === id);
             if (index === -1) return prevElements;
-
             const element = prevElements[index];
             const newElements = [...prevElements];
             
@@ -498,25 +476,21 @@ function App() {
         setElements(prevElements => {
             const index = prevElements.findIndex(el => el.id === id);
             if (index === -1) return prevElements;
-
             const element = prevElements[index];
             const newElements = prevElements.filter(el => el.id !== id);
             
             if (position === 'front') {
-                newElements.push(element); 
+                newElements.push(element);
             } else if (position === 'back') {
-                newElements.unshift(element); 
+                newElements.unshift(element);
             }
             return newElements;
         });
     }, []);
 
-
-    // --- GEOMETRY / BOUNDS HELPERS ---
-
     const getPolygonVertices = (sides, cx, cy, radius) => {
         const vertices = [];
-        const startAngle = -Math.PI / 2; 
+        const startAngle = -Math.PI / 2;
         for (let i = 0; i < sides; i++) {
             const angle = startAngle + i * 2 * Math.PI / sides;
             vertices.push({
@@ -544,47 +518,41 @@ function App() {
         }
     };
     
-    // Calculates the *unrotated* bounding box for selection/snapping
-    const getElementBounds = (el, ctx) => {
+    const getElementBounds = useCallback((el, ctx) => {
         let x, y, w, h;
-        const strokeOffset = (el.strokeWidth || 0) / 2; 
+        const strokeOffset = (el.strokeWidth || 0) / 2;
 
         if (el.type === 'rect' || el.type === 'image') {
-            x = el.x - strokeOffset; 
-            y = el.y - strokeOffset; 
-            w = el.width + (strokeOffset * 2); 
+            x = el.x - strokeOffset;
+            y = el.y - strokeOffset;
+            w = el.width + (strokeOffset * 2);
             h = el.height + (strokeOffset * 2);
         } else if (el.type === 'circle') {
-            x = el.x - strokeOffset; 
-            y = el.y - strokeOffset; 
-            w = el.radius * 2 + (strokeOffset * 2); 
+            x = el.x - strokeOffset;
+            y = el.y - strokeOffset;
+            w = el.radius * 2 + (strokeOffset * 2);
             h = el.radius * 2 + (strokeOffset * 2);
         } else if (el.type === 'polygon') {
-            x = el.x - strokeOffset; 
-            y = el.y - strokeOffset; 
-            w = el.size + (strokeOffset * 2); 
+            x = el.x - strokeOffset;
+            y = el.y - strokeOffset;
+            w = el.size + (strokeOffset * 2);
             h = el.size + (strokeOffset * 2);
         } else if (el.type === 'text' && ctx) {
-            // FIX: Use robust metrics for accurate text selection bounding box
             ctx.font = `${el.fontSize || 12}px Arial`;
             const textMetrics = ctx.measureText(el.text);
-            const width = textMetrics.width;
-            // Use fallback estimates if bounding box properties are not supported by the browser
             const ascent = textMetrics.actualBoundingBoxAscent || (el.fontSize * 0.8);
             const descent = textMetrics.actualBoundingBoxDescent || (el.fontSize * 0.2);
+            const width = textMetrics.width;
             
-            x = el.x; 
             y = el.y - ascent;
-            w = width; 
+            w = width;
             h = ascent + descent;
-
-            // Add a small safety buffer for easier clicking/selection
-            const buffer = 5; 
-            x -= buffer;
-            y -= buffer;
-            w += 2 * buffer;
-            h += 2 * buffer;
-
+            x = el.x;
+            
+            x -= TEXT_BOUNDING_BUFFER;
+            y -= TEXT_BOUNDING_BUFFER;
+            w += 2 * TEXT_BOUNDING_BUFFER;
+            h += 2 * TEXT_BOUNDING_BUFFER;
         } else if (el.type === 'text') {
             const height = el.fontSize || 12;
             const width = (el.text.length * height) * 0.6;
@@ -592,30 +560,23 @@ function App() {
         } else {
             return { x: 0, y: 0, w: 0, h: 0 };
         }
-
         return { x: x, y: y, w: w, h: h };
-    };
+    }, []);
 
-    // --- SNAP GUIDES LOGIC ---
-
-    const getSnapGuides = (currentElementId, canvasW, canvasH) => {
+    const getSnapGuides = useCallback((currentElementId, canvasW, canvasH) => {
         const allGuides = { x: [], y: [] };
         
-        // 1. Canvas Boundary Guides
         allGuides.x.push(0, canvasW / 2, canvasW);
         allGuides.y.push(0, canvasH / 2, canvasH);
         
-        // 2. Element Guides
         elements.forEach(el => {
             if (el.id === currentElementId) return;
-
             const bounds = getElementBounds(el, ctxRef.current);
             
             allGuides.x.push(bounds.x, bounds.x + bounds.w / 2, bounds.x + bounds.w);
             allGuides.y.push(bounds.y, bounds.y + bounds.h / 2, bounds.y + bounds.h);
         });
         
-        // 3. Grid Guides
         if (showGrid && gridSize > 0) {
             for (let i = 0; i <= canvasW; i += gridSize) {
                 allGuides.x.push(i);
@@ -624,71 +585,54 @@ function App() {
                 allGuides.y.push(i);
             }
         }
-
         allGuides.x = [...new Set(allGuides.x.map(Math.round))];
         allGuides.y = [...new Set(allGuides.y.map(Math.round))];
-
         return allGuides;
-    };
+    }, [elements, getElementBounds, showGrid, gridSize]);
     
     const applySnap = (newX, newY, newW, newH, guides) => {
         const tolerance = SNAP_TOLERANCE;
         const snap = { x: newX, y: newY, guides: { x: [], y: [] } };
         
-        const checkX = [
-            { pos: newX, type: 'left' },             
-            { pos: newX + newW / 2, type: 'center' },  
-            { pos: newX + newW, type: 'right' }      
-        ];
-
-        for (const { pos: elementPos } of checkX) {
+        const checkX = [newX, newX + newW / 2, newX + newW];
+        for (let i = 0; i < checkX.length; i++) {
+            const elementPos = checkX[i];
             for (const guideX of guides.x) {
                 if (Math.abs(elementPos - guideX) < tolerance) {
                     const offset = guideX - elementPos;
                     snap.x += offset;
                     snap.guides.x.push(guideX);
+                    i = checkX.length;
                     break;
                 }
             }
-            if (snap.guides.x.length > 0) break;
         }
-
-        const checkY = [
-            { pos: newY, type: 'top' },              
-            { pos: newY + newH / 2, type: 'center' }, 
-            { pos: newY + newH, type: 'bottom' }     
-        ];
-
-        for (const { pos: elementPos } of checkY) {
+        const checkY = [newY, newY + newH / 2, newY + newH];
+        for (let i = 0; i < checkY.length; i++) {
+            const elementPos = checkY[i];
             for (const guideY of guides.y) {
                 if (Math.abs(elementPos - guideY) < tolerance) {
                     const offset = guideY - elementPos;
                     snap.y += offset;
                     snap.guides.y.push(guideY);
+                    i = checkY.length;
                     break;
                 }
             }
-            if (snap.guides.y.length > 0) break;
         }
 
         return snap;
     };
-
-
-    // --- Interaction Handlers ---
-
-    const isPointInElement = (x, y, el) => {
+    
+    const isPointInElement = useCallback((x, y, el) => {
         const ctx = ctxRef.current;
         if (!ctx) return false;
-
-        // Use the robust bounds calculation for rectangular hit testing
+        
         const bounds = getElementBounds(el, ctx);
         
         if (el.type === 'rect' || el.type === 'image' || el.type === 'text' || el.type === 'polygon') {
-            // Check if point is within the element's bounding box
             return x >= bounds.x && x <= bounds.x + bounds.w && y >= bounds.y && y <= bounds.y + bounds.h;
         } else if (el.type === 'circle') {
-            // For circle, use a precise distance check if inside the bounding box
             if (x < bounds.x || x > bounds.x + bounds.w || y < bounds.y || y > bounds.y + bounds.h) return false;
             
             const radius = el.radius + (el.strokeWidth || 0) / 2;
@@ -696,24 +640,23 @@ function App() {
             const cy = el.y + el.radius;
             const dx = x - cx;
             const dy = y - cy;
-            return dx * dx + dy * dy <= radius * radius;
+            
+            return (dx * dx) + (dy * dy) <= (radius * radius);
         }
         return false;
-    };
+    }, [getElementBounds]);
 
-    const isPointOnHandle = (px, py, el) => {
+    const isPointOnHandle = useCallback((px, py, el) => {
         const ctx = ctxRef.current;
         const handleSize = 8;
         const halfHandle = handleSize / 2;
         const bounds = getElementBounds(el, ctx);
-
         const handles = {
-            'tl': { x: bounds.x, y: bounds.y },               
-            'tr': { x: bounds.x + bounds.w, y: bounds.y },    
-            'bl': { x: bounds.x, y: bounds.y + bounds.h },    
-            'br': { x: bounds.x + bounds.w, y: bounds.y + bounds.h }, 
+            'tl': { x: bounds.x, y: bounds.y },
+            'tr': { x: bounds.x + bounds.w, y: bounds.y },
+            'bl': { x: bounds.x, y: bounds.y + bounds.h },
+            'br': { x: bounds.x + bounds.w, y: bounds.y + bounds.h },
         };
-
         for (const [key, pos] of Object.entries(handles)) {
             if (
                 px >= pos.x - halfHandle && px <= pos.x + halfHandle &&
@@ -723,9 +666,7 @@ function App() {
             }
         }
         return null;
-    };
-
-    // --- Drawing Logic ---
+    }, [getElementBounds]);
 
     const drawHandles = (ctx, bounds) => {
         const handleSize = 8;
@@ -735,7 +676,6 @@ function App() {
             { x: bounds.x, y: bounds.y + bounds.h },
             { x: bounds.x + bounds.w, y: bounds.y + bounds.h },
         ];
-
         ctx.fillStyle = '#10b981';
         handles.forEach(pos => {
             ctx.fillRect(pos.x - 4, pos.y - 4, handleSize, handleSize);
@@ -746,7 +686,7 @@ function App() {
         if (!size || size <= 0) return;
         
         ctx.save();
-        ctx.strokeStyle = '#e5e7eb'; 
+        ctx.strokeStyle = '#e5e7eb';
         ctx.lineWidth = 0.5;
         
         for (let x = 0; x <= width; x += size) {
@@ -755,7 +695,6 @@ function App() {
             ctx.lineTo(x, height);
             ctx.stroke();
         }
-
         for (let y = 0; y <= height; y += size) {
             ctx.beginPath();
             ctx.moveTo(0, y);
@@ -768,20 +707,17 @@ function App() {
 
     useEffect(() => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-
-        // 1. Clear and Draw Base Background
+        const ctx = ctxRef.current;
+        if (!canvas || !ctx) return;
+        
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // 2. Draw Grid
+        
         if (showGrid) {
             drawGrid(ctx, canvasSize.width, canvasSize.height, gridSize);
         }
-
-        // 3. Draw Elements (Updated for Rotation & Opacity)
+        
         elements.forEach(el => {
             ctx.save();
             
@@ -789,24 +725,20 @@ function App() {
             const strokeWidth = el.strokeWidth || 0;
             const rotation = el.rotation || 0;
             
-            // --- Apply Opacity (FEATURE 2) ---
-            ctx.globalAlpha = el.opacity !== undefined ? el.opacity : 1; 
-
-            // --- Apply Rotation ---
+            ctx.globalAlpha = el.opacity !== undefined ? el.opacity : 1;
+            
             if (rotation !== 0) {
                 let centerX, centerY;
                 
                 if (el.type === 'rect' || el.type === 'image' || el.type === 'polygon') {
-                    // Use actual width/height/size if available, otherwise fallback
-                    const w = el.width || el.size || 0;
-                    const h = el.height || el.size || 0;
+                    const w = el.width || el.size;
+                    const h = el.height || el.size;
                     centerX = el.x + w / 2;
                     centerY = el.y + h / 2;
                 } else if (el.type === 'circle') {
                     centerX = el.x + el.radius;
                     centerY = el.y + el.radius;
                 } else if (el.type === 'text') {
-                    // For text, rotation center is approximated at the center of the UNROTATED bounding box
                     const bounds = getElementBounds(el, ctx);
                     centerX = bounds.x + bounds.w / 2;
                     centerY = bounds.y + bounds.h / 2;
@@ -818,10 +750,7 @@ function App() {
                     ctx.translate(-centerX, -centerY);
                 }
             }
-            // --- End Rotation ---
 
-
-            // Setup path for shapes
             if (el.type === 'rect') {
                 ctx.beginPath();
                 ctx.rect(el.x, el.y, el.width, el.height);
@@ -832,61 +761,58 @@ function App() {
                 drawPolygonPath(ctx, el);
             }
 
-            // Fill
             if (el.type !== 'text' && el.type !== 'image') {
                 ctx.fillStyle = color;
                 ctx.fill();
             }
 
-            // Stroke
             if (strokeWidth > 0 && (el.type === 'rect' || el.type === 'circle' || el.type === 'polygon')) {
                 ctx.strokeStyle = el.strokeColor || '#000000';
                 ctx.lineWidth = strokeWidth;
                 ctx.stroke();
             }
             
-            // Text
             if (el.type === 'text') {
                 ctx.fillStyle = color;
                 ctx.font = `${el.fontSize || 12}px Arial`;
+                ctx.textBaseline = 'alphabetic';
                 ctx.fillText(el.text, el.x, el.y);
-            } 
+            }
             
-            // Image
             if (el.type === 'image' && el.img) {
                 ctx.drawImage(el.img, el.x, el.y, el.width, el.height);
             }
             
-            // Draw Handles for Selected Element
-            if (el.id === selectedId) {
+            if (selectedIds.includes(el.id)) {
+                ctx.restore();
+                ctx.save();
                 const bounds = getElementBounds(el, ctx);
                 
                 ctx.strokeStyle = '#10b981';
                 ctx.lineWidth = 2;
+                ctx.globalAlpha = 1;
                 ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
-
-                drawHandles(ctx, bounds);
+                
+                if (el.id === primarySelected?.id && selectedIds.length === 1) {
+                    drawHandles(ctx, bounds);
+                }
             }
             
             ctx.restore();
         });
 
-        // Reset globalAlpha outside of restore for alignment guides
-        ctx.globalAlpha = 1;
-
-        // 4. DRAW ALIGNMENT GUIDES (On top of everything)
         ctx.save();
-        ctx.strokeStyle = '#ec4899'; 
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#ec4899';
         ctx.lineWidth = 1;
-        ctx.setLineDash([4, 2]); 
-
+        ctx.setLineDash([4, 2]);
+        
         activeGuides.x.forEach(guideX => {
             ctx.beginPath();
             ctx.moveTo(guideX, 0);
             ctx.lineTo(guideX, canvas.height);
             ctx.stroke();
         });
-
         activeGuides.y.forEach(guideY => {
             ctx.beginPath();
             ctx.moveTo(0, guideY);
@@ -895,9 +821,8 @@ function App() {
         });
         
         ctx.restore();
-        ctx.setLineDash([]); 
-
-    }, [elements, canvasSize, selectedId, activeGuides, showGrid, gridSize]); 
+        ctx.setLineDash([]);
+    }, [elements, canvasSize, selectedIds, primarySelected, activeGuides, showGrid, gridSize, getElementBounds]);
 
     const handleMouseDown = (e) => {
         if (contextMenu && e.button === 0) {
@@ -908,12 +833,9 @@ function App() {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-
-        setActiveGuides({ x: [], y: [] }); 
-
-        if (selectedId) {
-            const selectedEl = elements.find(el => el.id === selectedId);
-            const handle = isPointOnHandle(x, y, selectedEl);
+        
+        if (primarySelected && selectedIds.length === 1) {
+            const handle = isPointOnHandle(x, y, primarySelected);
             if (handle) {
                 setIsResizing(true);
                 setResizeHandle(handle);
@@ -924,25 +846,36 @@ function App() {
 
         for (let i = elements.length - 1; i >= 0; i--) {
             if (isPointInElement(x, y, elements[i])) {
-                setSelectedId(elements[i].id);
-                setIsDragging(true);
+                const clickedId = elements[i].id;
                 
-                // Calculate drag offset based on element's core x/y 
+                if (e.shiftKey) {
+                    setSelectedIds(prev =>
+                        prev.includes(clickedId)
+                            ? prev.filter(id => id !== clickedId)
+                            : [...prev, clickedId]
+                    );
+                } else {
+                    setSelectedIds([clickedId]);
+                }
+                
+                setIsDragging(true);
                 setDragOffset({ x: x - elements[i].x, y: y - elements[i].y });
                 return;
             }
         }
-        setSelectedId(null);
+        
+        setSelectedIds([]);
     };
 
     const handleMouseMove = (e) => {
         const canvas = canvasRef.current;
+        if (!canvas) return;
+
         const rect = canvas.getBoundingClientRect();
         let x = e.clientX - rect.left;
         let y = e.clientY - rect.top;
         const shiftKey = e.shiftKey;
         
-        // Cursor logic
         if (isDragging) {
             canvas.style.cursor = 'grabbing';
         } else if (isResizing) {
@@ -951,8 +884,8 @@ function App() {
                 'tr': 'nesw-resize', 'bl': 'nesw-resize'
             };
             canvas.style.cursor = cursors[resizeHandle] || 'default';
-        } else if (selectedElement) {
-            const handle = isPointOnHandle(x, y, selectedElement);
+        } else if (primarySelected && selectedIds.length === 1) {
+            const handle = isPointOnHandle(x, y, primarySelected);
             const cursors = {
                 'tl': 'nwse-resize', 'br': 'nwse-resize',
                 'tr': 'nesw-resize', 'bl': 'nesw-resize'
@@ -962,71 +895,71 @@ function App() {
             canvas.style.cursor = 'default';
         }
         
-        // --- Dragging Logic with Snap ---
-        if (isDragging && selectedId) {
-            const originalEl = elements.find(el => el.id === selectedId);
-            if (!originalEl) return;
+        if (isDragging && primarySelected) {
+            const currentElement = elements.find(el => el.id === primarySelected.id);
+            if (!currentElement) return;
 
-            // Calculate the potential core element position (no bounds/stroke adjustment yet)
-            let potentialCoreX = x - dragOffset.x;
-            let potentialCoreY = y - dragOffset.y;
+            const dx_raw = x - (currentElement.x + dragOffset.x);
+            const dy_raw = y - (currentElement.y + dragOffset.y);
             
-            const bounds = getElementBounds(originalEl, ctxRef.current);
-            const guides = getSnapGuides(selectedId, canvasSize.width, canvasSize.height);
-            
-            // 1. Adjust potential coordinates to match the bounds top-left
-            const strokeOffset = (originalEl.strokeWidth || 0) / 2;
-            let potentialBoundsX = potentialCoreX - strokeOffset;
-            let potentialBoundsY = potentialCoreY - strokeOffset;
-            
-            // 2. Apply snap to the BOUNDS
-            const snapResult = applySnap(
-                potentialBoundsX, 
-                potentialBoundsY, 
-                bounds.w, 
-                bounds.h, 
-                guides
-            );
-            
-            let finalSnapBoundsX = snapResult.x;
-            let finalSnapBoundsY = snapResult.y;
-            
-            setActiveGuides(snapResult.guides);
+            let finalDx = dx_raw;
+            let finalDy = dy_raw;
+            setActiveGuides({ x: [], y: [] });
 
+            if (selectedIds.length === 1) {
+                const bounds = getElementBounds(currentElement, ctxRef.current);
+                const guides = getSnapGuides(primarySelected.id, canvasSize.width, canvasSize.height);
 
+                let potentialCoreX = currentElement.x + dx_raw;
+                let potentialCoreY = currentElement.y + dy_raw;
+                
+                const strokeOffset = (currentElement.strokeWidth || 0) / 2;
+                let potentialBoundsX;
+                let potentialBoundsY;
+
+                if (currentElement.type === 'text') {
+                    const textBoundsHeight = bounds.h - (2 * TEXT_BOUNDING_BUFFER);
+                    const estimatedAscent = textBoundsHeight * 0.8;
+                    
+                    potentialBoundsX = potentialCoreX - TEXT_BOUNDING_BUFFER;
+                    potentialBoundsY = potentialCoreY - estimatedAscent - TEXT_BOUNDING_BUFFER;
+                } else {
+                    potentialBoundsX = potentialCoreX - strokeOffset;
+                    potentialBoundsY = potentialCoreY - strokeOffset;
+                }
+                
+                const snapResult = applySnap(
+                    potentialBoundsX,
+                    potentialBoundsY,
+                    bounds.w,
+                    bounds.h,
+                    guides
+                );
+                
+                const snapCorrectionX = snapResult.x - potentialBoundsX;
+                const snapCorrectionY = snapResult.y - potentialBoundsY;
+
+                finalDx = dx_raw + snapCorrectionX;
+                finalDy = dy_raw + snapCorrectionY;
+                
+                setActiveGuides(snapResult.guides);
+            }
+            
             setElements(elements.map(el => {
-                if (el.id === selectedId) {
-                    
-                    if (el.type === 'text') {
-                        // For text, we apply the delta between the snapped bounds and the potential bounds 
-                        // to the core element x/y (baseline).
-                        const dx_snap = finalSnapBoundsX - potentialBoundsX;
-                        const dy_snap = finalSnapBoundsY - potentialBoundsY;
-
-                        return {
-                            ...el,
-                            x: potentialCoreX + dx_snap,
-                            y: potentialCoreY + dy_snap,
-                        };
-                    }
-                    
-                    // Shapes/Images: Element x/y is top-left corner (requires adjusting for stroke)
-                    return { 
-                        ...el, 
-                        x: finalSnapBoundsX + strokeOffset, 
-                        y: finalSnapBoundsY + strokeOffset 
+                if (selectedIds.includes(el.id)) {
+                    return {
+                        ...el,
+                        x: el.x + finalDx,
+                        y: el.y + finalDy
                     };
                 }
                 return el;
             }));
             return;
-        } 
+        }
         
-        // --- Resizing Logic ---
-        if (isResizing && selectedId && resizeHandle) {
-            const originalEl = elements.find(el => el.id === selectedId);
-            if (!originalEl) return;
-
+        if (isResizing && primarySelected && resizeHandle && selectedIds.length === 1) {
+            const originalEl = primarySelected;
             const bounds = getElementBounds(originalEl, ctxRef.current);
             
             const rawDx = x - resizeStartPoint.x;
@@ -1062,13 +995,14 @@ function App() {
             }
 
             if (shiftKey && originalEl.type !== 'text') {
-                const lockedW = newW;
-                const lockedH = newH;
-                
-                if (Math.abs(lockedW) / aspectRatio > Math.abs(lockedH)) {
-                    newW = aspectRatio * lockedH;
+                const targetW = newW;
+                const targetH = newH;
+                const newRatio = Math.abs(targetW / targetH);
+
+                if (newRatio > aspectRatio) {
+                    newW = aspectRatio * targetH;
                 } else {
-                    newH = lockedW / aspectRatio;
+                    newH = targetW / aspectRatio;
                 }
 
                 if (resizeHandle.includes('t')) {
@@ -1082,75 +1016,71 @@ function App() {
             newW = Math.max(10, newW);
             newH = Math.max(10, newH);
 
-            if (newW < 10) newX = bounds.x + bounds.w - newW;
-            if (newH < 10) newY = bounds.y + bounds.h - newH;
+            if (newW < 10) newX = bounds.x + bounds.w - 10;
+            if (newH < 10) newY = bounds.y + bounds.h - 10;
 
-            setActiveGuides({ x: [], y: [] }); 
+            setActiveGuides({ x: [], y: [] });
 
             setElements(elements.map(el => {
-                if (el.id === selectedId) {
+                if (el.id === primarySelected.id) {
                     const strokeOffset = (el.strokeWidth || 0) / 2;
-
                     if (el.type === 'rect' || el.type === 'image') {
-                        return { 
-                            ...el, 
-                            x: newX + strokeOffset, 
-                            y: newY + strokeOffset, 
-                            width: newW - (strokeOffset * 2), 
-                            height: newH - (strokeOffset * 2) 
+                        return {
+                            ...el,
+                            x: newX + strokeOffset,
+                            y: newY + strokeOffset,
+                            width: newW - (strokeOffset * 2),
+                            height: newH - (strokeOffset * 2)
                         };
                     } else if (el.type === 'circle') {
-                        // Radius excludes stroke
-                        const newRadius = Math.max(5, (newW - (strokeOffset * 2)) / 2);
-                        return { 
-                            ...el, 
-                            x: newX + strokeOffset, 
-                            y: newY + strokeOffset, 
-                            radius: newRadius 
+                        const newRadius = Math.max(5, (Math.min(newW, newH) - (strokeOffset * 2)) / 2);
+                        return {
+                            ...el,
+                            x: newX + strokeOffset,
+                            y: newY + strokeOffset,
+                            radius: newRadius
                         };
                     } else if (el.type === 'polygon') {
-                        // Size excludes stroke
-                        const newSize = Math.max(20, Math.max(newW, newH) - (strokeOffset * 2));
-                        return { 
-                            ...el, 
-                            x: newX + strokeOffset, 
-                            y: newY + strokeOffset, 
-                            size: newSize 
+                        const newSize = Math.max(20, Math.min(newW, newH) - (strokeOffset * 2));
+                        return {
+                            ...el,
+                            x: newX + strokeOffset,
+                            y: newY + strokeOffset,
+                            size: newSize
                         };
                     } else if (el.type === 'text') {
-                        const newFontSize = Math.max(8, newH - 10); 
-                        
+                        const newFontSize = Math.max(8, newH - (2 * TEXT_BOUNDING_BUFFER));
                         const estimatedAscent = newFontSize * 0.8;
-                        const newTextY = newY + 5 + estimatedAscent; 
+                        const newTextY = newY + TEXT_BOUNDING_BUFFER + estimatedAscent;
                         
-                        return { 
-                            ...el, 
-                            x: newX + 5, 
-                            y: newTextY, 
-                            fontSize: newFontSize 
-                        }; 
+                        return {
+                            ...el,
+                            x: newX + TEXT_BOUNDING_BUFFER,
+                            y: newTextY,
+                            fontSize: newFontSize
+                        };
                     }
                 }
                 return el;
             }));
             return;
         }
-        
+
         if (!isDragging && !isResizing) {
             setActiveGuides({ x: [], y: [] });
         }
     };
 
     const handleMouseUp = () => {
+        if (isDragging || isResizing) {
+            setActiveGuides({ x: [], y: [] });
+        }
         setIsDragging(false);
         setIsResizing(false);
         setResizeHandle(null);
-        setResizeStartPoint({ x: 0, y: 0 }); 
-        setActiveGuides({ x: [], y: [] }); 
+        setResizeStartPoint({ x: 0, y: 0 });
     };
     
-    // --- Context Menu Handlers ---
-
     const handleContextMenu = useCallback((e) => {
         e.preventDefault();
         const canvas = canvasRef.current;
@@ -1158,241 +1088,266 @@ function App() {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         let clickedElementId = null;
-
         for (let i = elements.length - 1; i >= 0; i--) {
             if (isPointInElement(x, y, elements[i])) {
                 clickedElementId = elements[i].id;
-                setSelectedId(clickedElementId);
+                if (!selectedIds.includes(clickedElementId)) {
+                    setSelectedIds([clickedElementId]);
+                }
                 break;
             }
         }
         
         setContextMenu({ x: e.clientX, y: e.clientY, elementId: clickedElementId });
-    }, [elements]);
+    }, [elements, isPointInElement, selectedIds]);
 
     const handleCloseMenu = useCallback(() => {
         setContextMenu(null);
     }, []);
 
     const handleAction = (action) => {
-        const elementId = contextMenu.elementId;
+        const elementId = contextMenu?.elementId;
+        const primaryTargetId = primarySelected?.id || elementId;
 
         if (action === 'delete') {
-            if (elementId) {
-                setElements(elements.filter(el => el.id !== elementId));
-                setSelectedId(null);
+            const idsToDelete = selectedIds.length > 0 ? selectedIds : (elementId ? [elementId] : []);
+            if (idsToDelete.length > 0) {
+                setElements(elements.filter(el => !idsToDelete.includes(el.id)));
+                setSelectedIds([]);
             }
         } else if (action === 'copy') {
-            if (elementId) {
-                const elementToCopy = elements.find(el => el.id === elementId);
-                const { img, ...copyData } = elementToCopy;
-                setCopiedElement(copyData);
-                setToast({ message: "Element copied to clipboard.", type: 'success' });
+            if (selectedIds.length > 0) {
+                const elementsToCopy = elements
+                    .filter(el => selectedIds.includes(el.id))
+                    .map(({ img, ...rest }) => rest);
+                setCopiedElement(elementsToCopy);
+                setToast({ message: `${elementsToCopy.length} element(s) copied to clipboard.`, type: 'success' });
             }
         } else if (action === 'paste') {
-            if (copiedElement) {
-                const newElement = {
-                    ...copiedElement,
-                    id: Date.now(),
-                    x: copiedElement.x + 20,
-                    y: copiedElement.y + 20,
-                    rotation: copiedElement.rotation || 0,
-                    opacity: copiedElement.opacity || 1,
-                };
-
-                if (newElement.type === 'image' && newElement.src) {
-                    const img = new Image();
-                    img.onload = () => {
-                        setElements(prev => prev.map(el => el.id === newElement.id ? { ...el, img: img } : el));
+            if (copiedElement && copiedElement.length > 0) {
+                const newElements = [];
+                const newIds = [];
+                const newTime = Date.now();
+                
+                copiedElement.forEach((el, index) => {
+                    const newId = newTime + index + Math.random();
+                    newIds.push(newId);
+                    
+                    const baseElement = {
+                        ...el,
+                        id: newId,
+                        x: el.x + 20,
+                        y: el.y + 20,
+                        rotation: el.rotation || 0,
+                        opacity: el.opacity || 1,
+                        isGrouped: el.isGrouped || false,
                     };
-                    img.src = newElement.src;
-                    setElements(prev => [...prev, { ...newElement, img: undefined }]);
-                } else {
-                    setElements(prev => [...prev, newElement]);
-                }
-                setSelectedId(newElement.id);
-                setToast({ message: "Element pasted.", type: 'success' });
+                    
+                    if (baseElement.type === 'image' && baseElement.src) {
+                        const img = new Image();
+                        img.onload = () => {
+                            setElements(prev => prev.map(p => p.id === newId ? { ...p, img: img } : p));
+                        };
+                        img.src = baseElement.src;
+                        newElements.push({ ...baseElement, img: undefined });
+                    } else {
+                        newElements.push(baseElement);
+                    }
+                });
+                
+                setElements(prev => [...prev, ...newElements]);
+                setSelectedIds(newIds);
+                setToast({ message: `${newElements.length} element(s) pasted.`, type: 'success' });
             }
         }
-
+        else if (action === 'bring-front' && primaryTargetId) {
+            moveLayerToExtreme(primaryTargetId, 'front');
+            setToast({ message: 'Element brought to front.', type: 'success' });
+        }
+        else if (action === 'send-back' && primaryTargetId) {
+            moveLayerToExtreme(primaryTargetId, 'back');
+            setToast({ message: 'Element sent to back.', type: 'success' });
+        }
+        else if (action === 'duplicate' && primaryTargetId) {
+              const elementToDuplicate = elements.find(el => el.id === primaryTargetId);
+                if (elementToDuplicate) {
+                    const { img, ...copyData } = elementToDuplicate;
+                    const newId = Date.now() + Math.random();
+                    const newElement = {
+                        ...copyData,
+                        id: newId,
+                        x: copyData.x + 20,
+                        y: copyData.y + 20,
+                        rotation: copyData.rotation || 0,
+                        opacity: copyData.opacity || 1,
+                    };
+                    if (newElement.type === 'image' && newElement.src) {
+                        const img = new Image();
+                        img.onload = () => {
+                            setElements(prev => prev.map(p => p.id === newId ? { ...el, img: img } : p));
+                        };
+                        img.src = newElement.src;
+                        setElements(prev => [...prev, { ...newElement, img: undefined }]);
+                    } else {
+                        setElements(prev => [...prev, newElement]);
+                    }
+                    setSelectedIds([newId]);
+                    setToast({ message: 'Element duplicated.', type: 'success' });
+                }
+        }
+        
         setContextMenu(null);
     };
 
-    // --- Element Creation ---
-
     const addRect = () => {
+        const newId = Date.now();
         setElements([...elements, {
-            type: 'rect', x: 50, y: 50, width: 100, height: 100, 
-            color: '#ef4444', 
-            strokeWidth: 0, 
-            strokeColor: '#000000', 
-            rotation: 0, 
-            opacity: 1, // Feature 2
-            isGrouped: false, // Feature 1
-            id: Date.now()
+            type: 'rect', x: 50, y: 50, width: 100, height: 100,
+            color: '#ef4444', strokeWidth: 0, strokeColor: '#000000', rotation: 0, opacity: 1, isGrouped: false, id: newId
         }]);
+        setSelectedIds([newId]);
     };
-
     const addCircle = () => {
+        const newId = Date.now();
         setElements([...elements, {
-            type: 'circle', x: 200, y: 200, radius: 50, 
-            color: '#3b82f6', 
-            strokeWidth: 0, 
-            strokeColor: '#000000', 
-            rotation: 0, 
-            opacity: 1, // Feature 2
-            isGrouped: false, // Feature 1
-            id: Date.now()
+            type: 'circle', x: 200, y: 200, radius: 50,
+            color: '#3b82f6', strokeWidth: 0, strokeColor: '#000000', rotation: 0, opacity: 1, isGrouped: false, id: newId
         }]);
+        setSelectedIds([newId]);
     };
-    
     const addTriangle = () => {
+        const newId = Date.now();
         setElements([...elements, {
-            type: 'polygon', x: 300, y: 50, sides: 3, size: 100, 
-            color: '#f59e0b', 
-            strokeWidth: 0, 
-            strokeColor: '#000000', 
-            rotation: 0, 
-            opacity: 1, // Feature 2
-            isGrouped: false, // Feature 1
-            id: Date.now()
+            type: 'polygon', x: 300, y: 50, sides: 3, size: 100,
+            color: '#f59e0b', strokeWidth: 0, strokeColor: '#000000', rotation: 0, opacity: 1, isGrouped: false, id: newId
         }]);
+        setSelectedIds([newId]);
     };
-
     const addPentagon = () => {
+        const newId = Date.now();
         setElements([...elements, {
-            type: 'polygon', x: 450, y: 50, sides: 5, size: 100, 
-            color: '#10b981', 
-            strokeWidth: 0, 
-            strokeColor: '#000000', 
-            rotation: 0, 
-            opacity: 1, // Feature 2
-            isGrouped: false, // Feature 1
-            id: Date.now()
+            type: 'polygon', x: 450, y: 50, sides: 5, size: 100,
+            color: '#10b981', strokeWidth: 0, strokeColor: '#000000', rotation: 0, opacity: 1, isGrouped: false, id: newId
         }]);
+        setSelectedIds([newId]);
     };
-
     const addText = () => {
         const text = prompt("Enter text:", "Hello World");
         if (text) {
+            const newId = Date.now();
             setElements([...elements, {
-                type: 'text', x: 100, y: 100, text: text, fontSize: 24, color: '#000000', rotation: 0, opacity: 1, isGrouped: false, id: Date.now() // Feature 1 & 2
+                type: 'text', x: 100, y: 100, text: text, fontSize: 24, color: '#000000', rotation: 0, opacity: 1, isGrouped: false, id: newId
             }]);
+            setSelectedIds([newId]);
         }
     };
 
-    const handleImageUpload = (e) => {
+    const handleImageUpload = async (e) => {
         const file = e.target.files[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            try {
+                const response = await axios.post(`${BACKEND_URL}/api/assets/upload`, formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                    },
+                });
+
+                const imageUrl = response.data.url;
+                const newId = Date.now();
+                
                 const img = new Image();
                 img.onload = () => {
-                    setElements([...elements, {
+                    setElements(prev => [...prev, {
                         type: 'image',
-                        x: 50,
-                        y: 50,
+                        x: 50, y: 50,
                         width: 200,
                         height: 200 * (img.height / img.width),
-                        src: event.target.result, 
+                        src: imageUrl,
                         img: img,
-                        rotation: 0, 
-                        opacity: 1, // Feature 2
-                        isGrouped: false, // Feature 1
-                        id: Date.now()
+                        rotation: 0, opacity: 1, isGrouped: false, id: newId
                     }]);
+                    setSelectedIds([newId]);
                 };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(file);
+                img.src = imageUrl;
+
+            } catch (error) {
+                console.error("Image upload failed:", error);
+                setToast({ message: 'Failed to upload image.', type: 'error' });
+            }
         }
+        e.target.value = '';
     };
-    
-    // --- EXPORT/SAVE/LOAD HANDLERS ---
 
-    const handleSaveCanvas = () => {
+    const handleSaveCanvas = async () => {
         try {
-            const canvasData = {
+            const elementsToSend = elements.map(({ img, ...rest }) => rest);
+            const response = await axios.post(`${BACKEND_URL}/api/projects/save`, {
+                id: projectId,
+                name: 'My New Project',
                 canvasSize,
-                elements: elements.map(({ img, ...rest }) => rest),
-                version: '1.0',
-                savedAt: new Date().toISOString()
-            };
+                elements: elementsToSend,
+            });
+            
+            setProjectId(response.data.projectId);
+            setToast({ message: `Canvas saved (ID: ${response.data.projectId})`, type: 'success' });
 
-            const dataStr = JSON.stringify(canvasData, null, 2);
-            const dataBlob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(dataBlob);
-            
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `canvas-design-${Date.now()}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            
-            setToast({ message: 'Canvas saved successfully!', type: 'success' });
         } catch (error) {
             console.error('Save failed:', error);
             setToast({ message: 'Failed to save canvas.', type: 'error' });
         }
     };
 
-    const handleLoadCanvas = (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const canvasData = JSON.parse(e.target.result);
-                
-                if (!canvasData.elements || !canvasData.canvasSize) {
-                    throw new Error('Invalid canvas file format');
-                }
-
-                setCanvasSize(canvasData.canvasSize);
-                setHistory([[]]);
-                setHistoryIndex(0);
-
-                const loadedElements = canvasData.elements.map(el => {
-                    if (el.opacity === undefined) el.opacity = 1; // Ensure opacity compatibility
-                    if (el.isGrouped === undefined) el.isGrouped = false; // Ensure grouping compatibility
-                    
-                    if (el.type === 'image' && el.src) {
-                        const img = new Image();
-                        img.onload = () => {
-                            setElements(prev => prev.map(p => p.id === el.id ? { ...p, img: img } : p));
-                        };
-                        img.src = el.src;
-                        return { ...el, img: undefined };
-                    }
-                    return el;
-                });
-
-                setElements(loadedElements);
-                setSelectedId(null);
-                
-                setToast({ message: 'Canvas loaded successfully!', type: 'success' });
-            } catch (error) {
-                console.error('Load failed:', error);
-                setToast({ message: 'Failed to load canvas: Invalid file format.', type: 'error' });
-            }
-        };
+    const handleLoadCanvas = async () => {
+        const id = prompt("Enter Project ID to Load (e.g., proj_1700000000000):");
+        if (!id) return;
         
-        reader.readAsText(file);
-        event.target.value = ''; 
-    };
+        try {
+            const response = await axios.get(`${BACKEND_URL}/api/projects/load/${id}`);
+            const canvasData = response.data;
 
-    const handleExport = async () => {
+            setCanvasSize(canvasData.canvasSize);
+            setProjectId(canvasData.projectId);
+            setHistory([[]]);
+            setHistoryIndex(0);
+
+            const loadedElements = canvasData.elements.map(el => {
+                if (el.opacity === undefined) el.opacity = 1;
+                if (el.isGrouped === undefined) el.isGrouped = false;
+                
+                if (el.type === 'image' && el.src) {
+                    const img = new Image();
+                    img.onload = () => {
+                        setElements(prev => prev.map(p => p.id === el.id ? { ...p, img: img } : p));
+                    };
+                    img.src = el.src;
+                    return { ...el, img: undefined };
+                }
+                return el;
+            });
+
+            setElements(loadedElements);
+            setSelectedIds([]);
+            setToast({ message: `Canvas loaded: ${canvasData.name}`, type: 'success' });
+
+        } catch (error) {
+            console.error('Load failed:', error);
+            setToast({ message: 'Failed to load canvas: Check Project ID.', type: 'error' });
+        }
+    };
+    
+    const handleExport = async (type) => {
         try {
             const elementsToSend = elements.map(({ img, ...rest }) => rest);
+            const endpoint = `/api/canvas/export/${type}`;
 
-            const response = await axios.post('http://localhost:3000/api/canvas/export', {
+            const response = await axios.post(`${BACKEND_URL}${endpoint}`, {
                 width: canvasSize.width,
                 height: canvasSize.height,
                 elements: JSON.stringify(elementsToSend),
-                settings: exportSettings
+                settings: { scale: 2 }
             }, {
                 responseType: 'blob'
             });
@@ -1400,25 +1355,23 @@ function App() {
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', 'canvas-export.pdf');
+            link.setAttribute('download', `canvas-export.${type}`);
             document.body.appendChild(link);
             link.click();
             link.remove();
             
-            setToast({ message: 'PDF export successful!', type: 'success' });
+            setToast({ message: `${type.toUpperCase()} export successful!`, type: 'success' });
         } catch (error) {
             console.error("Export failed:", error);
-            setToast({ message: 'Failed to export PDF.', type: 'error' });
+            setToast({ message: `Failed to export ${type.toUpperCase()}.`, type: 'error' });
         }
     };
-    
-    // --- COMPLETE KEYBOARD SHORTCUTS ---
+
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
                 return;
             }
-
             const isCtrl = e.ctrlKey || e.metaKey;
             
             if (isCtrl && e.key === 'z' && !e.shiftKey) {
@@ -1434,22 +1387,22 @@ function App() {
             }
 
             if (e.key === 'Delete' || e.key === 'Backspace') {
-                if (selectedId) {
+                if (selectedIds.length > 0) {
                     e.preventDefault();
-                    setElements(prevElements => prevElements.filter(el => el.id !== selectedId));
-                    setSelectedId(null);
+                    setElements(prevElements => prevElements.filter(el => !selectedIds.includes(el.id)));
+                    setSelectedIds([]);
                 }
                 return;
             }
 
-            if (selectedId && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            if (selectedIds.length > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                 e.preventDefault();
                 
                 const nudgeAmount = e.shiftKey ? 10 : 1;
                 
-                setElements(prevElements => 
+                setElements(prevElements =>
                     prevElements.map(el => {
-                        if (el.id === selectedId) {
+                        if (selectedIds.includes(el.id)) {
                             let newX = el.x;
                             let newY = el.y;
                             
@@ -1477,107 +1430,94 @@ function App() {
             }
 
             if (e.key === 'Escape') {
-                setSelectedId(null);
+                setSelectedIds([]);
                 setContextMenu(null);
+                setActiveGuides({ x: [], y: [] });
             }
 
-            // COPY (Ctrl+C)
-            if (isCtrl && e.key === 'c' && selectedId) {
+            if (isCtrl && e.key === 'c' && selectedIds.length > 0) {
                 e.preventDefault();
-                const elementToCopy = elements.find(el => el.id === selectedId);
-                if (elementToCopy) {
-                    const { img, ...copyData } = elementToCopy;
-                    setCopiedElement(copyData);
-                    setToast({ message: "Element copied to clipboard.", type: 'success' });
-                }
+                const elementsToCopy = elements
+                    .filter(el => selectedIds.includes(el.id))
+                    .map(({ img, ...rest }) => rest);
+                setCopiedElement(elementsToCopy);
+                setToast({ message: `${elementsToCopy.length} element(s) copied to clipboard.`, type: 'success' });
             }
 
-            // PASTE (Ctrl+V)
-            if (isCtrl && e.key === 'v' && copiedElement) {
+            if (isCtrl && e.key === 'v' && copiedElement.length > 0) {
                 e.preventDefault();
-                const newElement = {
-                    ...copiedElement,
-                    id: Date.now(),
-                    x: copiedElement.x + 20,
-                    y: copiedElement.y + 20,
-                    rotation: copiedElement.rotation || 0,
-                    opacity: copiedElement.opacity || 1,
-                };
-
-                if (newElement.type === 'image' && newElement.src) {
-                    const img = new Image();
-                    img.onload = () => {
-                        setElements(prev => prev.map(el => el.id === newElement.id ? { ...el, img: img } : el));
-                    };
-                    img.src = newElement.src;
-                    setElements(prev => [...prev, { ...newElement, img: undefined }]);
-                } else {
-                    setElements(prev => [...prev, newElement]);
-                }
-                setSelectedId(newElement.id);
-                setToast({ message: "Element pasted.", type: 'success' });
+                handleAction('paste');
             }
 
             if (isCtrl && e.key === 'a') {
                 e.preventDefault();
                 if (elements.length > 0) {
-                    setSelectedId(elements[elements.length - 1].id);
+                    setSelectedIds(elements.map(el => el.id));
                 }
             }
 
-            if (isCtrl && e.key === 'd' && selectedId) {
+            if (isCtrl && e.key === 'd' && selectedIds.length > 0) {
                 e.preventDefault();
-                const elementToDuplicate = elements.find(el => el.id === selectedId);
-                if (elementToDuplicate) {
-                    const { img, ...copyData } = elementToDuplicate;
-                    const newElement = {
-                        ...copyData,
-                        id: Date.now(),
-                        x: copyData.x + 20,
-                        y: copyData.y + 20,
-                        rotation: copyData.rotation || 0,
-                        opacity: copyData.opacity || 1,
-                    };
-
-                    if (newElement.type === 'image' && newElement.src) {
-                        const img = new Image();
-                        img.onload = () => {
-                            setElements(prev => prev.map(el => el.id === newElement.id ? { ...el, img: img } : el));
+                const elementsToDuplicate = elements
+                    .filter(el => selectedIds.includes(el.id))
+                    .map(({ img, ...rest }) => rest);
+                
+                if (elementsToDuplicate.length > 0) {
+                    const newElements = [];
+                    const newIds = [];
+                    const newTime = Date.now();
+                    
+                    elementsToDuplicate.forEach((el, index) => {
+                        const newId = newTime + index + Math.random();
+                        newIds.push(newId);
+                        
+                        const baseElement = {
+                            ...el,
+                            id: newId,
+                            x: el.x + 20,
+                            y: el.y + 20,
+                            rotation: el.rotation || 0,
+                            opacity: el.opacity || 1,
                         };
-                        img.src = newElement.src;
-                        setElements(prev => [...prev, { ...newElement, img: undefined }]);
-                    } else {
-                        setElements(prev => [...prev, newElement]);
-                    }
-                    setSelectedId(newElement.id);
+                        
+                        if (baseElement.type === 'image' && baseElement.src) {
+                            const img = new Image();
+                            img.onload = () => {
+                                setElements(prev => prev.map(p => p.id === newId ? { ...el, img: img } : p));
+                            };
+                            img.src = baseElement.src;
+                            newElements.push({ ...baseElement, img: undefined });
+                        } else {
+                            newElements.push(baseElement);
+                        }
+                    });
+
+                    setElements(prev => [...prev, ...newElements]);
+                    setSelectedIds(newIds);
+                    setToast({ message: `${newElements.length} element(s) duplicated.`, type: 'success' });
                 }
             }
-
-            if (isCtrl && e.key === ']' && selectedId) {
-                e.preventDefault();
-                moveLayerToExtreme(selectedId, 'front');
-            }
-
-            if (isCtrl && e.key === '[' && selectedId) {
-                e.preventDefault();
-                moveLayerToExtreme(selectedId, 'back');
-            }
-
-            if (isCtrl && e.shiftKey && e.key === '}' && selectedId) {
-                e.preventDefault();
-                moveLayer(selectedId, 'forward');
-            }
-
-            if (isCtrl && e.shiftKey && e.key === '{' && selectedId) {
-                e.preventDefault();
-                moveLayer(selectedId, 'backward');
+            
+            if (isCtrl && primarySelected) {
+                if (e.key === ']') {
+                    e.preventDefault();
+                    moveLayerToExtreme(primarySelected.id, 'front');
+                } else if (e.key === '[') {
+                    e.preventDefault();
+                    moveLayerToExtreme(primarySelected.id, 'back');
+                } else if (e.shiftKey && e.key === '}') {
+                    e.preventDefault();
+                    moveLayer(primarySelected.id, 'forward');
+                } else if (e.shiftKey && e.key === '{') {
+                    e.preventDefault();
+                    moveLayer(primarySelected.id, 'backward');
+                }
             }
         };
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [selectedId, elements, copiedElement, handleUndo, handleRedo, moveLayer, moveLayerToExtreme, setElements, setSelectedId, setCopiedElement, setContextMenu, setToast]);
-
+    }, [selectedIds, elements, copiedElement, primarySelected, handleUndo, handleRedo, moveLayer, moveLayerToExtreme, setElements, setSelectedIds, setCopiedElement, setContextMenu, setToast, handleAction]);
 
     return (
         <div className="min-h-screen flex flex-col bg-gradient-to-br from-emerald-900 via-teal-900 to-emerald-900 font-sans text-gray-800">
@@ -1591,10 +1531,10 @@ function App() {
                 </div>
                 
                 {/* Visual Clipboard Indicator */}
-                {copiedElement && (
+                {copiedElement.length > 0 && (
                     <div className="flex items-center gap-2 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-lg border border-yellow-400/30 text-sm">
                         <Clipboard size={16} />
-                        <span>Clipboard: {copiedElement.type} copied</span>
+                        <span>Clipboard: {copiedElement.length} element(s) copied</span>
                     </div>
                 )}
                 
@@ -1621,45 +1561,48 @@ function App() {
                     <button
                         onClick={handleSaveCanvas}
                         className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg hover:from-blue-700 hover:to-blue-800 transition shadow-lg font-medium"
-                        title="Save design as JSON"
+                        title={`Save design ${projectId ? '(Update)' : '(New)'}`}
                     >
                         <Save size={18} />
-                        Save Canvas
+                        {projectId ? 'Update Canvas' : 'Save Canvas'}
                     </button>
 
                     {/* LOAD BUTTON */}
                     <button
-                        onClick={() => loadFileInputRef.current.click()}
+                        onClick={handleLoadCanvas}
                         className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-purple-800 transition shadow-lg font-medium"
-                        title="Load design from JSON"
+                        title="Load design by Project ID"
                     >
                         <FolderOpen size={18} />
                         Load Canvas
                     </button>
                     
-                    {/* Hidden Input for loading JSON files */}
-                    <input
-                        type="file"
-                        ref={loadFileInputRef}
-                        onChange={handleLoadCanvas}
-                        accept=".json"
-                        className="hidden"
-                    />
-
-                    <button
-                        onClick={handleExport}
-                        className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-lg hover:from-emerald-700 hover:to-teal-700 transition shadow-lg font-medium"
-                    >
-                        <Download size={18} />
-                        Export PDF
-                    </button>
+                    {/* EXPORT DROPDOWN (FIX APPLIED HERE) */}
+                    <div className="relative group">
+                        <button
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-lg hover:from-emerald-700 hover:to-teal-700 transition shadow-lg font-medium"
+                            title="Export options"
+                        >
+                            <Download size={18} />
+                            Export
+                        </button>
+                        {/* THE FIX: top-full ensures no gap between the button and the dropdown menu, keeping the hover state active */}
+                        <div className="absolute right-0 top-full w-40 bg-gray-800 rounded-md shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto z-50">
+                            <button onClick={() => handleExport('pdf')} className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-emerald-600 rounded-t-md">
+                                Export PDF
+                            </button>
+                            <button onClick={() => handleExport('png')} className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-emerald-600 rounded-b-md">
+                                Export PNG
+                            </button>
+                        </div>
+                    </div>
+                    
                 </div>
             </header>
 
             <div className="flex flex-1 overflow-hidden">
                 {/* Sidebar Controls */}
                 <div className="w-72 bg-white/10 backdrop-blur-lg border-r border-white/20 flex flex-col overflow-y-auto">
-
                     {/* CANVAS SIZE SECTION */}
                     <div className="p-6 border-b border-white/10">
                         <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Canvas Size</h2>
@@ -1669,8 +1612,9 @@ function App() {
                                 <input
                                     type="number"
                                     value={canvasSize.width}
-                                    onChange={(e) => setCanvasSize({ ...canvasSize, width: parseInt(e.target.value) })}
+                                    onChange={(e) => setCanvasSize({ ...canvasSize, width: Math.max(100, parseInt(e.target.value) || 100) })}
                                     className="bg-white/10 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+                                    min="100"
                                 />
                             </div>
                             <div className="flex flex-col">
@@ -1678,8 +1622,9 @@ function App() {
                                 <input
                                     type="number"
                                     value={canvasSize.height}
-                                    onChange={(e) => setCanvasSize({ ...canvasSize, height: parseInt(e.target.value) })}
+                                    onChange={(e) => setCanvasSize({ ...canvasSize, height: Math.max(100, parseInt(e.target.value) || 100) })}
                                     className="bg-white/10 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+                                    min="100"
                                 />
                             </div>
                         </div>
@@ -1708,15 +1653,14 @@ function App() {
                                 value={gridSize}
                                 min="10"
                                 step="10"
-                                onChange={(e) => setGridSize(Math.max(10, parseInt(e.target.value)))}
+                                onChange={(e) => setGridSize(Math.max(10, parseInt(e.target.value) || 10))}
                                 className="bg-white/10 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
                                 disabled={!showGrid}
                             />
-                            <p className="text-xs text-gray-400 mt-1 italic">Snaps to grid when enabled.</p>
+                            <p className="text-xs text-gray-400 mt-1 italic">Snaps to elements, canvas, and grid.</p>
                         </div>
                     </div>
-
-
+                    
                     {/* ELEMENTS CREATION SECTION */}
                     <div className="p-6">
                         <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Elements</h2>
@@ -1758,15 +1702,15 @@ function App() {
                         </div>
                     </div>
 
-                    {/* Element Properties (FIXED POSITIONING: Placed here to ensure visibility without scrolling past Creation) */}
-                    {selectedElement && (
-                        <ElementProperties 
-                            selectedElement={selectedElement}
+                    {/* Element Properties */}
+                    {primarySelected && (
+                        <ElementProperties
+                            selectedElement={primarySelected}
                             setElements={setElements}
-                            setSelectedId={setSelectedId}
-                            moveLayer={moveLayer} 
-                            moveLayerToExtreme={moveLayerToExtreme} 
-                            toggleGroupStatus={toggleGroupStatus} // Feature 1
+                            setSelectedIds={setSelectedIds}
+                            moveLayer={moveLayer}
+                            moveLayerToExtreme={moveLayerToExtreme}
+                            toggleGroupStatus={toggleGroupStatus}
                         />
                     )}
                 </div>
@@ -1782,11 +1726,11 @@ function App() {
                             onMouseMove={handleMouseMove}
                             onMouseUp={handleMouseUp}
                             onMouseLeave={handleMouseUp}
-                            onContextMenu={handleContextMenu} 
+                            onContextMenu={handleContextMenu}
                             className="bg-white rounded-lg"
                         />
                         <div className="absolute -top-6 left-0 text-xs text-emerald-300 font-medium">
-                            {canvasSize.width} x {canvasSize.height} px
+                            {canvasSize.width} x {canvasSize.height} px ({selectedIds.length} elements selected)
                         </div>
                     </div>
                 </div>
@@ -1794,11 +1738,11 @@ function App() {
             
             {/* RENDER CUSTOM CONTEXT MENU */}
             {contextMenu && (
-                <ContextMenu 
-                    x={contextMenu.x} 
-                    y={contextMenu.y} 
+                <ContextMenu
+                    x={contextMenu.x}
+                    y={contextMenu.y}
                     elementId={contextMenu.elementId}
-                    selectedId={selectedId}
+                    selectedId={primarySelected?.id || null}
                     copiedElement={copiedElement}
                     onAction={handleAction}
                     onClose={handleCloseMenu}
@@ -1807,9 +1751,9 @@ function App() {
             
             {/* RENDER TOAST NOTIFICATION */}
             {toast && (
-                <Toast 
-                    message={toast.message} 
-                    type={toast.type} 
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
                     onClose={() => setToast(null)}
                 />
             )}

@@ -1,0 +1,14 @@
+{
+  "proj_1765732319817": {
+    "name": "My New Project",
+    "userId": "demo_user",
+    "canvasSize": {
+      "width": 1000,
+      "height": 1000
+    },
+    "elements": "[{\"type\":\"circle\",\"x\":203,\"y\":200,\"radius\":50,\"color\":\"#3b82f6\",\"strokeWidth\":0,\"strokeColor\":\"#000000\",\"rotation\":0,\"opacity\":1,\"isGrouped\":false,\"id\":1765732072011}]",
+    "updatedAt": "2025-12-14T17:11:59.817Z",
+    "createdAt": "2025-12-14T17:11:59.817Z",
+    "id": "proj_1765732319817"
+  }
+}
