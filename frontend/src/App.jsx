@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
+// Import new icons for collapse/expand
 import { Square, Circle, Type, Image as ImageIcon, Download, MousePointer2, Triangle, Hexagon, Palette, Undo, Redo, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Save, FolderOpen, Grid, PenTool, RotateCw, Clipboard, CheckCircle, XCircle, Ungroup, Group } from 'lucide-react';
 
 // --- Constants ---
 const BACKEND_URL = 'http://localhost:3000'; // Define backend URL
-const RESIZE_SENSITIVITY_FACTOR = 0.6;
+const RESIZE_SENSITIVITY_FACTOR = 0.2;
 const MAX_HISTORY_LENGTH = 50;
 const SNAP_TOLERANCE = 5;
 const TEXT_BOUNDING_BUFFER = 5;
@@ -91,7 +92,7 @@ const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onC
 };
 
 // --- Element Properties Component (Externalized) ---
-const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveLayer, moveLayerToExtreme, toggleGroupStatus }) => {
+const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveLayer, moveLayerToExtreme, toggleGroupStatus, isExpanded, toggleExpand }) => {
     
     const isImage = selectedElement?.type === 'image';
     const isText = selectedElement?.type === 'text';
@@ -134,180 +135,195 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
     const isGrouped = selectedElement.isGrouped || false;
 
     return (
-        <div className="p-6 border-t border-white/10 bg-white/5">
-            <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Selected Element (Primary)</h2>
-            <p className="text-xs text-emerald-300 mb-4">ID: {selectedElement.id}</p>
+        // Changed outer div to always show header, using padding to prevent inner content shift
+        <div className="border-t border-white/10 bg-white/5">
+            {/* Collapse/Expand Header (Always visible when an element is selected) */}
+            <div className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-white/10 transition" onClick={toggleExpand}>
+                <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider">
+                    Selected Element (Primary)
+                </h2>
+                <button title={isExpanded ? "Collapse Properties" : "Expand Properties"}>
+                    {isExpanded ? <ChevronUp size={16} className="text-white" /> : <ChevronDown size={16} className="text-white" />}
+                </button>
+            </div>
             
-            {/* Text Content Input */}
-            {isText && (
-                 <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                     <label className="text-xs text-emerald-300 mb-2 block">Text Content</label>
-                     <textarea
-                         rows="3"
-                         value={selectedElement.text}
-                         onChange={handleTextContentChange}
-                         className="w-full bg-white/20 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
-                     />
-                 </div>
-            )}
-            
-            {/* Fill Color Picker Section */}
-            {!isImage && (
-                <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                             <Palette size={18} className="text-emerald-300" />
-                             <span className="text-sm font-medium text-white">{isText ? 'Text Color' : 'Fill Color'}</span>
-                        </div>
-                        
-                        <input
-                            type="color"
-                            value={currentColor}
-                            onChange={handleColorChange}
-                            className="w-8 h-8 cursor-pointer rounded-full border-2 border-white/50 overflow-hidden"
-                            title="Choose element color"
-                        />
-                    </div>
+            {/* Collapsible Content Area */}
+            {isExpanded && (
+                <div className="p-6 pt-0">
+                    <p className="text-xs text-emerald-300 mb-4">ID: {selectedElement.id}</p>
                     
-                    {/* Color Presets */}
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10 mt-2">
-                        {COLOR_PRESETS.map((color) => (
-                            <button
-                                key={color}
-                                style={{ backgroundColor: color }}
-                                className={`w-6 h-6 rounded-full border-2 transition ${currentColor === color ? 'border-white ring-2 ring-emerald-400' : 'border-transparent'}`}
-                                onClick={() => handleStyleChange('color', color)}
-                                title={color}
+                    {/* Text Content Input */}
+                    {isText && (
+                            <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                               <label className="text-xs text-emerald-300 mb-2 block">Text Content</label>
+                               <textarea
+                                    rows="3"
+                                    value={selectedElement.text}
+                                    onChange={handleTextContentChange}
+                                    className="w-full bg-white/20 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+                               />
+                            </div>
+                    )}
+                    
+                    {/* Fill Color Picker Section */}
+                    {!isImage && (
+                        <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                    <Palette size={18} className="text-emerald-300" />
+                                    <span className="text-sm font-medium text-white">{isText ? 'Text Color' : 'Fill Color'}</span>
+                                </div>
+                                
+                                <input
+                                    type="color"
+                                    value={currentColor}
+                                    onChange={handleColorChange}
+                                    className="w-8 h-8 cursor-pointer rounded-full border-2 border-white/50 overflow-hidden"
+                                    title="Choose element color"
+                                />
+                            </div>
+                            
+                            {/* Color Presets */}
+                            <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10 mt-2">
+                                {COLOR_PRESETS.map((color) => (
+                                    <button
+                                        key={color}
+                                        style={{ backgroundColor: color }}
+                                        className={`w-6 h-6 rounded-full border-2 transition ${currentColor === color ? 'border-white ring-2 ring-emerald-400' : 'border-transparent'}`}
+                                        onClick={() => handleStyleChange('color', color)}
+                                        title={color}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {/* Stroke/Border Controls */}
+                    {isShape && (
+                        <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                            <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Border/Stroke</h3>
+                            
+                            {/* Stroke Width Slider */}
+                            <div className="mb-3">
+                                <label className="text-xs text-emerald-300 mb-2 block">Width ({currentStrokeWidth}px)</label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="20"
+                                    value={currentStrokeWidth}
+                                    onChange={handleStrokeWidthChange}
+                                    className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                                />
+                            </div>
+                            
+                            {/* Stroke Color Picker */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <PenTool size={18} className="text-emerald-300" />
+                                    <span className="text-sm font-medium text-white">Stroke Color</span>
+                                </div>
+                                <input
+                                    type="color"
+                                    value={currentStrokeColor}
+                                    onChange={handleStrokeColorChange}
+                                    className="w-8 h-8 cursor-pointer rounded-full border-2 border-white/50 overflow-hidden"
+                                    title="Choose border color"
+                                />
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Opacity Control */}
+                      <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                            <label className="text-xs text-emerald-300 mb-2 block">Opacity ({Math.round(currentOpacity * 100)}%)</label>
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value={currentOpacity}
+                                onChange={handleOpacityChange}
+                                className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
                             />
-                        ))}
                     </div>
-                </div>
-            )}
-            {/* Stroke/Border Controls */}
-            {isShape && (
-                <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                    <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Border/Stroke</h3>
-                    
-                    {/* Stroke Width Slider */}
-                    <div className="mb-3">
-                        <label className="text-xs text-emerald-300 mb-2 block">Width ({currentStrokeWidth}px)</label>
-                        <input
-                            type="range"
-                            min="0"
-                            max="20"
-                            value={currentStrokeWidth}
-                            onChange={handleStrokeWidthChange}
-                            className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                        />
-                    </div>
-                    
-                    {/* Stroke Color Picker */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <PenTool size={18} className="text-emerald-300" />
-                            <span className="text-sm font-medium text-white">Stroke Color</span>
+
+                    {/* Rotation Control */}
+                    {!isImage && (
+                          <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                              <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                      <RotateCw size={18} className="text-emerald-300" />
+                                      <span className="text-sm font-medium text-white">Rotation ({currentRotation}°)</span>
+                                  </div>
+                                  <button
+                                      onClick={() => handleStyleChange('rotation', (currentRotation + 45) % 360)}
+                                      className="p-1 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition"
+                                      title="Rotate 45 degrees"
+                                  >
+                                      <RotateCw size={16} />
+                                  </button>
+                              </div>
+                              <input
+                                  type="range"
+                                  min="0"
+                                  max="360"
+                                  value={currentRotation}
+                                  onChange={handleRotationChange}
+                                  className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                              />
+                          </div>
+                    )}
+
+                    {/* Font Size Control for Text */}
+                    {isText && (
+                        <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                            <label className="text-xs text-emerald-300 mb-2 block">Font Size ({currentFontSize}px)</label>
+                            <input
+                                type="range"
+                                min="8"
+                                max="120"
+                                value={currentFontSize}
+                                onChange={handleFontSizeChange}
+                                className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                            />
                         </div>
-                        <input
-                            type="color"
-                            value={currentStrokeColor}
-                            onChange={handleStrokeColorChange}
-                            className="w-8 h-8 cursor-pointer rounded-full border-2 border-white/50 overflow-hidden"
-                            title="Choose border color"
-                        />
+                    )}
+                    
+                    {/* Grouping Button (Conceptual) */}
+                    <button
+                        onClick={() => toggleGroupStatus(selectedElement.id)}
+                        className={`mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-semibold transition ${isGrouped ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-400/30 hover:bg-indigo-700/40' : 'bg-gray-500/20 text-gray-300 border border-gray-400/30 hover:bg-gray-600/30'}`}
+                    >
+                        {isGrouped ? <Ungroup size={16} /> : <Group size={16} />}
+                        {isGrouped ? 'Ungroup' : 'Group (Conceptual)'}
+                    </button>
+                    
+                    {/* Layer Controls */}
+                      <div className="mb-4 mt-4">
+                            <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Layer Order</h3>
+                            <div className="grid grid-cols-4 gap-2">
+                                <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front (Ctrl+])">
+                                    <ChevronsUp size={16} />
+                                </button>
+                                <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward (Ctrl+Shift+])">
+                                    <ChevronUp size={16} />
+                                </button>
+                                <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward (Ctrl+Shift+[)">
+                                    <ChevronDown size={16} />
+                                </button>
+                                <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back (Ctrl+[)">
+                                    <ChevronsDown size={16} />
+                                </button>
+                            </div>
                     </div>
+                    <button
+                        onClick={handleDelete}
+                        className="mt-4 w-full bg-red-500/20 text-red-200 border border-red-400/30 py-2 rounded-md text-xs font-semibold hover:bg-red-500/30 transition"
+                    >
+                        Delete Element (Del/Backspace)
+                    </button>
+                    <p className="text-xs text-emerald-300 mt-2 italic">Right-click on the canvas element for more actions.</p>
                 </div>
             )}
-            
-            {/* Opacity Control */}
-             <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                 <label className="text-xs text-emerald-300 mb-2 block">Opacity ({Math.round(currentOpacity * 100)}%)</label>
-                 <input
-                     type="range"
-                     min="0"
-                     max="1"
-                     step="0.01"
-                     value={currentOpacity}
-                     onChange={handleOpacityChange}
-                     className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                 />
-             </div>
-
-            {/* Rotation Control */}
-            {!isImage && (
-                 <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                     <div className="flex items-center justify-between mb-2">
-                         <div className="flex items-center gap-2">
-                             <RotateCw size={18} className="text-emerald-300" />
-                             <span className="text-sm font-medium text-white">Rotation ({currentRotation}°)</span>
-                         </div>
-                         <button
-                             onClick={() => handleStyleChange('rotation', (currentRotation + 45) % 360)}
-                             className="p-1 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition"
-                             title="Rotate 45 degrees"
-                         >
-                             <RotateCw size={16} />
-                         </button>
-                     </div>
-                     <input
-                         type="range"
-                         min="0"
-                         max="360"
-                         value={currentRotation}
-                         onChange={handleRotationChange}
-                         className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                     />
-                 </div>
-            )}
-
-            {/* Font Size Control for Text */}
-            {isText && (
-                <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                    <label className="text-xs text-emerald-300 mb-2 block">Font Size ({currentFontSize}px)</label>
-                    <input
-                        type="range"
-                        min="8"
-                        max="120"
-                        value={currentFontSize}
-                        onChange={handleFontSizeChange}
-                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                    />
-                </div>
-            )}
-            
-            {/* Grouping Button (Conceptual) */}
-            <button
-                onClick={() => toggleGroupStatus(selectedElement.id)}
-                className={`mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-semibold transition ${isGrouped ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-400/30 hover:bg-indigo-700/40' : 'bg-gray-500/20 text-gray-300 border border-gray-400/30 hover:bg-gray-600/30'}`}
-            >
-                {isGrouped ? <Ungroup size={16} /> : <Group size={16} />}
-                {isGrouped ? 'Ungroup' : 'Group (Conceptual)'}
-            </button>
-            
-            {/* Layer Controls */}
-             <div className="mb-4 mt-4">
-                 <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Layer Order</h3>
-                 <div className="grid grid-cols-4 gap-2">
-                     <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front (Ctrl+])">
-                         <ChevronsUp size={16} />
-                     </button>
-                     <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward (Ctrl+Shift+])">
-                         <ChevronUp size={16} />
-                     </button>
-                     <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward (Ctrl+Shift+[)">
-                         <ChevronDown size={16} />
-                     </button>
-                     <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back (Ctrl+[)">
-                         <ChevronsDown size={16} />
-                     </button>
-                 </div>
-             </div>
-            <button
-                onClick={handleDelete}
-                className="mt-4 w-full bg-red-500/20 text-red-200 border border-red-400/30 py-2 rounded-md text-xs font-semibold hover:bg-red-500/30 transition"
-            >
-                Delete Element (Del/Backspace)
-            </button>
-            <p className="text-xs text-emerald-300 mt-2 italic">Right-click on the canvas element for more actions.</p>
         </div>
     );
 };
@@ -338,6 +354,12 @@ function App() {
     
     const [toast, setToast] = useState(null);
     
+    // NEW STATE: For collapsible element properties panel
+    const [isPropertiesExpanded, setIsPropertiesExpanded] = useState(true);
+    const togglePropertiesExpand = useCallback(() => {
+        setIsPropertiesExpanded(prev => !prev);
+    }, []);
+
     const canvasRef = useRef(null);
     const fileInputRef = useRef(null);
     const loadFileInputRef = useRef(null);
@@ -352,6 +374,13 @@ function App() {
 
     const selectedElements = elements.filter(el => selectedIds.includes(el.id));
     const primarySelected = selectedElements[selectedElements.length - 1] || null;
+    
+    // Auto-expand properties when a new element is selected
+    useEffect(() => {
+        if (primarySelected) {
+            setIsPropertiesExpanded(true);
+        }
+    }, [primarySelected]);
 
     const toggleGroupStatus = useCallback((id) => {
         const element = elements.find(el => el.id === id);
@@ -1249,6 +1278,8 @@ function App() {
             formData.append('image', file);
             
             try {
+                // NOTE: This POST is a mock operation since a real backend isn't available.
+                // It assumes the server returns { url: 'base64_or_public_url' }
                 const response = await axios.post(`${BACKEND_URL}/api/assets/upload`, formData, {
                     headers: {
                         'Content-Type': 'multipart/form-data',
@@ -1271,7 +1302,9 @@ function App() {
                     }]);
                     setSelectedIds([newId]);
                 };
-                img.src = imageUrl;
+                // For a real app, `imageUrl` would be a server-provided URL. 
+                // For local testing, using a mock response or Data URL is common.
+                img.src = imageUrl; 
 
             } catch (error) {
                 console.error("Image upload failed:", error);
@@ -1343,6 +1376,8 @@ function App() {
             const elementsToSend = elements.map(({ img, ...rest }) => rest);
             const endpoint = `/api/canvas/export/${type}`;
 
+            // NOTE: This POST is a mock operation since a real backend isn't available.
+            // It assumes the backend will return a Blob (file data) for download.
             const response = await axios.post(`${BACKEND_URL}${endpoint}`, {
                 width: canvasSize.width,
                 height: canvasSize.height,
@@ -1520,8 +1555,9 @@ function App() {
     }, [selectedIds, elements, copiedElement, primarySelected, handleUndo, handleRedo, moveLayer, moveLayerToExtreme, setElements, setSelectedIds, setCopiedElement, setContextMenu, setToast, handleAction]);
 
     return (
-        <div className="min-h-screen flex flex-col bg-gradient-to-br from-emerald-900 via-teal-900 to-emerald-900 font-sans text-gray-800">
-            {/* Header */}
+        // TOP LEVEL: h-screen and overflow-hidden ensure the entire application stays within the viewport.
+        <div className="h-screen flex flex-col bg-gradient-to-br from-emerald-900 via-teal-900 to-emerald-900 font-sans text-gray-800 overflow-hidden">
+            {/* Header - Fixed height, does not scroll */}
             <header className="bg-white/10 backdrop-blur-lg border-b border-white/20 shadow-lg p-4 flex justify-between items-center z-10">
                 <div className="flex items-center gap-2">
                     <div className="bg-emerald-600 p-2 rounded-lg shadow-lg">
@@ -1577,7 +1613,7 @@ function App() {
                         Load Canvas
                     </button>
                     
-                    {/* EXPORT DROPDOWN (FIX APPLIED HERE) */}
+                    {/* EXPORT DROPDOWN */}
                     <div className="relative group">
                         <button
                             className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-lg hover:from-emerald-700 hover:to-teal-700 transition shadow-lg font-medium"
@@ -1586,7 +1622,7 @@ function App() {
                             <Download size={18} />
                             Export
                         </button>
-                        {/* THE FIX: top-full ensures no gap between the button and the dropdown menu, keeping the hover state active */}
+                        {/* FIX: top-full ensures no gap between the button and the dropdown menu, keeping the hover state active */}
                         <div className="absolute right-0 top-full w-40 bg-gray-800 rounded-md shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto z-50">
                             <button onClick={() => handleExport('pdf')} className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-emerald-600 rounded-t-md">
                                 Export PDF
@@ -1600,9 +1636,13 @@ function App() {
                 </div>
             </header>
 
+            {/* Main Content Area (Below Header) - flex-1 is crucial to occupy remaining vertical space and prevent outer scrolling */}
             <div className="flex flex-1 overflow-hidden">
-                {/* Sidebar Controls */}
-                <div className="w-72 bg-white/10 backdrop-blur-lg border-r border-white/20 flex flex-col overflow-y-auto">
+                {/* Sidebar Controls - flex-col is maintained, content below the grid controls is made scrollable */}
+                <div className="w-72 bg-white/10 backdrop-blur-lg border-r border-white/20 flex flex-col flex-shrink-0">
+                    
+                    {/* FIXED TOP SECTIONS */}
+                    
                     {/* CANVAS SIZE SECTION */}
                     <div className="p-6 border-b border-white/10">
                         <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Canvas Size</h2>
@@ -1612,9 +1652,9 @@ function App() {
                                 <input
                                     type="number"
                                     value={canvasSize.width}
-                                    onChange={(e) => setCanvasSize({ ...canvasSize, width: Math.max(100, parseInt(e.target.value) || 100) })}
+                                    onChange={(e) => setCanvasSize({ ...canvasSize, width: Math.max(1, parseInt(e.target.value) || 1) })}
                                     className="bg-white/10 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
-                                    min="100"
+                                    min="1" // Changed min to 1
                                 />
                             </div>
                             <div className="flex flex-col">
@@ -1622,9 +1662,9 @@ function App() {
                                 <input
                                     type="number"
                                     value={canvasSize.height}
-                                    onChange={(e) => setCanvasSize({ ...canvasSize, height: Math.max(100, parseInt(e.target.value) || 100) })}
+                                    onChange={(e) => setCanvasSize({ ...canvasSize, height: Math.max(1, parseInt(e.target.value) || 1) })}
                                     className="bg-white/10 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
-                                    min="100"
+                                    min="1" // Changed min to 1
                                 />
                             </div>
                         </div>
@@ -1661,62 +1701,71 @@ function App() {
                         </div>
                     </div>
                     
-                    {/* ELEMENTS CREATION SECTION */}
-                    <div className="p-6">
-                        <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Elements</h2>
-                        <div className="grid grid-cols-3 gap-3">
-                            {/* Row 1 */}
-                            <button onClick={addRect} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
-                                <Square size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
-                                <span className="text-xs font-medium text-emerald-200">Rect</span>
-                            </button>
-                            <button onClick={addCircle} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
-                                <Circle size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
-                                <span className="text-xs font-medium text-emerald-200">Circle</span>
-                            </button>
-                            <button onClick={addText} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
-                                <Type size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
-                                <span className="text-xs font-medium text-emerald-200">Text</span>
-                            </button>
-                            
-                            {/* Row 2: Shapes and Image */}
-                            <button onClick={addTriangle} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
-                                <Triangle size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
-                                <span className="text-xs font-medium text-emerald-200">Triangle</span>
-                            </button>
-                            <button onClick={addPentagon} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
-                                <Hexagon size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
-                                <span className="text-xs font-medium text-emerald-200">Pentagon</span>
-                            </button>
-                            <button onClick={() => fileInputRef.current.click()} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
-                                <ImageIcon size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
-                                <span className="text-xs font-medium text-emerald-200">Image</span>
-                            </button>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                onChange={handleImageUpload}
-                                accept="image/*"
-                                className="hidden"
-                            />
+                    {/* SCROLLABLE SECTION WRAPPER - Correctly handles scrolling for elements and properties if content overflows sidebar height */}
+                    <div className="flex-1 overflow-y-auto">
+                        
+                        {/* ELEMENTS CREATION SECTION */}
+                        <div className="p-6">
+                            <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Elements</h2>
+                            <div className="grid grid-cols-3 gap-3">
+                                {/* Row 1 */}
+                                <button onClick={addRect} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
+                                    <Square size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
+                                    <span className="text-xs font-medium text-emerald-200">Rect</span>
+                                </button>
+                                <button onClick={addCircle} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
+                                    <Circle size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
+                                    <span className="text-xs font-medium text-emerald-200">Circle</span>
+                                </button>
+                                <button onClick={addText} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
+                                    <Type size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
+                                    <span className="text-xs font-medium text-emerald-200">Text</span>
+                                </button>
+                                
+                                {/* Row 2: Shapes and Image */}
+                                <button onClick={addTriangle} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
+                                    <Triangle size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
+                                    <span className="text-xs font-medium text-emerald-200">Triangle</span>
+                                </button>
+                                <button onClick={addPentagon} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
+                                    <Hexagon size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
+                                    <span className="text-xs font-medium text-emerald-200">Pentagon</span>
+                                </button>
+                                <button onClick={() => fileInputRef.current.click()} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
+                                    <ImageIcon size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
+                                    <span className="text-xs font-medium text-emerald-200">Image</span>
+                                </button>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleImageUpload}
+                                    accept="image/*"
+                                    className="hidden"
+                                />
+                            </div>
                         </div>
-                    </div>
 
-                    {/* Element Properties */}
-                    {primarySelected && (
-                        <ElementProperties
-                            selectedElement={primarySelected}
-                            setElements={setElements}
-                            setSelectedIds={setSelectedIds}
-                            moveLayer={moveLayer}
-                            moveLayerToExtreme={moveLayerToExtreme}
-                            toggleGroupStatus={toggleGroupStatus}
-                        />
-                    )}
+                        {/* Element Properties */}
+                        {primarySelected && (
+                            <ElementProperties
+                                selectedElement={primarySelected}
+                                setElements={setElements}
+                                setSelectedIds={setSelectedIds}
+                                moveLayer={moveLayer}
+                                moveLayerToExtreme={moveLayerToExtreme}
+                                toggleGroupStatus={toggleGroupStatus}
+                                // Pass new state and toggle function
+                                isExpanded={isPropertiesExpanded}
+                                toggleExpand={togglePropertiesExpand}
+                            />
+                        )}
+                        
+                    </div> {/* END of scrollable wrapper */}
+
                 </div>
 
-                {/* Canvas Area */}
-                <div className="flex-1 bg-gradient-to-br from-emerald-800/50 to-teal-900/50 overflow-auto flex items-center justify-center p-8 relative">
+                {/* Canvas Area - overflow-auto enables scrolling ONLY when content (canvas) exceeds area size */}
+                <div className="flex-1 bg-gradient-to-br from-emerald-800/50 to-teal-900/50 overflow-auto flex justify-center p-8 relative">
                     <div className="relative shadow-2xl">
                         <canvas
                             ref={canvasRef}
