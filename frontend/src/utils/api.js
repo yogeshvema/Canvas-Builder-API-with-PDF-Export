@@ -2,6 +2,7 @@
 
 // Render backend URL
 export const API_BASE_URL = "https://canvas-backend-7ukd.onrender.com";
+// export const API_BASE_URL = "http://localhost:3000";
 
 // Initialize canvas
 export const initCanvas = async (width, height) => {

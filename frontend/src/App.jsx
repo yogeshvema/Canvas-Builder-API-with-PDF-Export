@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
-// Import new icons for collapse/expand
+// Import the real API functions and URL from your utility file
+import { API_BASE_URL, exportPDF } from "./utils/api";
+// Import lucide-react icons
 import { Square, Circle, Type, Image as ImageIcon, Download, MousePointer2, Triangle, Hexagon, Palette, Undo, Redo, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Save, FolderOpen, Grid, PenTool, RotateCw, Clipboard, CheckCircle, XCircle, Ungroup, Group } from 'lucide-react';
 
 // --- Constants ---
-const BACKEND_URL = 'http://localhost:3000'; // Define backend URL
-const RESIZE_SENSITIVITY_FACTOR = 0.2;
+// Resize sensitivity: 1.0 = normal, 0.5 = slower, 2.0 = faster
+const RESIZE_SENSITIVITY_FACTOR = 0.5;
 const MAX_HISTORY_LENGTH = 50;
 const SNAP_TOLERANCE = 5;
 const TEXT_BOUNDING_BUFFER = 5;
@@ -54,7 +56,7 @@ const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onC
             onMouseDown={(e) => e.stopPropagation()}
         >
             <ul className="list-none p-0 m-0">
-                
+
                 <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-indigo-600 rounded-md transition ${isElementSelected ? '' : 'opacity-50 cursor-not-allowed'}`}
                     onClick={isElementSelected ? () => onAction('bring-front') : null}>
                     Bring to Front (Ctrl+])
@@ -69,19 +71,19 @@ const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onC
                 </li>
 
                 <hr className="my-1 border-gray-700" />
-                
+
                 <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-emerald-600 rounded-md transition ${isElementSelected ? '' : 'opacity-50 cursor-not-allowed'}`}
                     onClick={isElementSelected ? () => onAction('copy') : null}>
                     Copy (Ctrl+C)
                 </li>
-                
+
                 <li className={`px-3 py-2 text-sm cursor-pointer hover:bg-emerald-600 rounded-md transition ${isCopiedElementArray ? '' : 'opacity-50 cursor-not-allowed'}`}
                     onClick={isCopiedElementArray ? () => onAction('paste') : null}>
                     Paste (Ctrl+V)
                 </li>
-                
+
                 <hr className="my-1 border-gray-700" />
-                
+
                 <li className={`flex items-center px-3 py-2 text-sm cursor-pointer rounded-md transition ${isElementSelected ? 'bg-red-600 hover:bg-red-700 font-semibold' : 'opacity-50 cursor-not-allowed text-red-300'}`}
                     onClick={isElementSelected ? () => onAction('delete') : null}>
                     Delete (Del/Back)
@@ -93,11 +95,11 @@ const ContextMenu = ({ x, y, elementId, selectedId, copiedElement, onAction, onC
 
 // --- Element Properties Component (Externalized) ---
 const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveLayer, moveLayerToExtreme, toggleGroupStatus, isExpanded, toggleExpand }) => {
-    
+
     const isImage = selectedElement?.type === 'image';
     const isText = selectedElement?.type === 'text';
     const isShape = selectedElement && !isImage && !isText;
-    
+
     if (!selectedElement) {
         return null;
     }
@@ -110,7 +112,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
     const currentOpacity = selectedElement.opacity !== undefined ? selectedElement.opacity : 1;
 
     const handleStyleChange = (key, value) => {
-          setElements(prevElements =>
+        setElements(prevElements =>
             prevElements.map(el =>
                 el.id === selectedElement.id
                     ? { ...el, [key]: value }
@@ -126,12 +128,12 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
     const handleStrokeWidthChange = (e) => handleStyleChange('strokeWidth', parseInt(e.target.value) || 0);
     const handleRotationChange = (e) => handleStyleChange('rotation', parseInt(e.target.value) || 0);
     const handleOpacityChange = (e) => handleStyleChange('opacity', parseFloat(e.target.value));
-    
+
     const handleDelete = () => {
         setElements(prevElements => prevElements.filter(el => el.id !== selectedElement.id));
         setSelectedIds([]);
     };
-    
+
     const isGrouped = selectedElement.isGrouped || false;
 
     return (
@@ -146,25 +148,25 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                     {isExpanded ? <ChevronUp size={16} className="text-white" /> : <ChevronDown size={16} className="text-white" />}
                 </button>
             </div>
-            
+
             {/* Collapsible Content Area */}
             {isExpanded && (
                 <div className="p-6 pt-0">
                     <p className="text-xs text-emerald-300 mb-4">ID: {selectedElement.id}</p>
-                    
+
                     {/* Text Content Input */}
                     {isText && (
-                            <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                               <label className="text-xs text-emerald-300 mb-2 block">Text Content</label>
-                               <textarea
-                                    rows="3"
-                                    value={selectedElement.text}
-                                    onChange={handleTextContentChange}
-                                    className="w-full bg-white/20 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
-                               />
-                            </div>
+                        <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                            <label className="text-xs text-emerald-300 mb-2 block">Text Content</label>
+                            <textarea
+                                rows="3"
+                                value={selectedElement.text}
+                                onChange={handleTextContentChange}
+                                className="w-full bg-white/20 border border-white/20 text-white rounded-md p-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+                            />
+                        </div>
                     )}
-                    
+
                     {/* Fill Color Picker Section */}
                     {!isImage && (
                         <div className="mb-4 p-3 bg-white/10 rounded-lg">
@@ -173,7 +175,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                                     <Palette size={18} className="text-emerald-300" />
                                     <span className="text-sm font-medium text-white">{isText ? 'Text Color' : 'Fill Color'}</span>
                                 </div>
-                                
+
                                 <input
                                     type="color"
                                     value={currentColor}
@@ -182,7 +184,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                                     title="Choose element color"
                                 />
                             </div>
-                            
+
                             {/* Color Presets */}
                             <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10 mt-2">
                                 {COLOR_PRESETS.map((color) => (
@@ -201,7 +203,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                     {isShape && (
                         <div className="mb-4 p-3 bg-white/10 rounded-lg">
                             <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Border/Stroke</h3>
-                            
+
                             {/* Stroke Width Slider */}
                             <div className="mb-3">
                                 <label className="text-xs text-emerald-300 mb-2 block">Width ({currentStrokeWidth}px)</label>
@@ -214,7 +216,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                                     className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
                                 />
                             </div>
-                            
+
                             {/* Stroke Color Picker */}
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -231,46 +233,46 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                             </div>
                         </div>
                     )}
-                    
+
                     {/* Opacity Control */}
-                      <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                            <label className="text-xs text-emerald-300 mb-2 block">Opacity ({Math.round(currentOpacity * 100)}%)</label>
-                            <input
-                                type="range"
-                                min="0"
-                                max="1"
-                                step="0.01"
-                                value={currentOpacity}
-                                onChange={handleOpacityChange}
-                                className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                            />
+                    <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                        <label className="text-xs text-emerald-300 mb-2 block">Opacity ({Math.round(currentOpacity * 100)}%)</label>
+                        <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={currentOpacity}
+                            onChange={handleOpacityChange}
+                            className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                        />
                     </div>
 
                     {/* Rotation Control */}
                     {!isImage && (
-                          <div className="mb-4 p-3 bg-white/10 rounded-lg">
-                              <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-2">
-                                      <RotateCw size={18} className="text-emerald-300" />
-                                      <span className="text-sm font-medium text-white">Rotation ({currentRotation}°)</span>
-                                  </div>
-                                  <button
-                                      onClick={() => handleStyleChange('rotation', (currentRotation + 45) % 360)}
-                                      className="p-1 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition"
-                                      title="Rotate 45 degrees"
-                                  >
-                                      <RotateCw size={16} />
-                                  </button>
-                              </div>
-                              <input
-                                  type="range"
-                                  min="0"
-                                  max="360"
-                                  value={currentRotation}
-                                  onChange={handleRotationChange}
-                                  className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                              />
-                          </div>
+                        <div className="mb-4 p-3 bg-white/10 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                    <RotateCw size={18} className="text-emerald-300" />
+                                    <span className="text-sm font-medium text-white">Rotation ({currentRotation}°)</span>
+                                </div>
+                                <button
+                                    onClick={() => handleStyleChange('rotation', (currentRotation + 45) % 360)}
+                                    className="p-1 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition"
+                                    title="Rotate 45 degrees"
+                                >
+                                    <RotateCw size={16} />
+                                </button>
+                            </div>
+                            <input
+                                type="range"
+                                min="0"
+                                max="360"
+                                value={currentRotation}
+                                onChange={handleRotationChange}
+                                className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                            />
+                        </div>
                     )}
 
                     {/* Font Size Control for Text */}
@@ -287,7 +289,7 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                             />
                         </div>
                     )}
-                    
+
                     {/* Grouping Button (Conceptual) */}
                     <button
                         onClick={() => toggleGroupStatus(selectedElement.id)}
@@ -296,24 +298,24 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
                         {isGrouped ? <Ungroup size={16} /> : <Group size={16} />}
                         {isGrouped ? 'Ungroup' : 'Group (Conceptual)'}
                     </button>
-                    
+
                     {/* Layer Controls */}
-                      <div className="mb-4 mt-4">
-                            <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Layer Order</h3>
-                            <div className="grid grid-cols-4 gap-2">
-                                <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front (Ctrl+])">
-                                    <ChevronsUp size={16} />
-                                </button>
-                                <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward (Ctrl+Shift+])">
-                                    <ChevronUp size={16} />
-                                </button>
-                                <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward (Ctrl+Shift+[)">
-                                    <ChevronDown size={16} />
-                                </button>
-                                <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back (Ctrl+[)">
-                                    <ChevronsDown size={16} />
-                                </button>
-                            </div>
+                    <div className="mb-4 mt-4">
+                        <h3 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-2">Layer Order</h3>
+                        <div className="grid grid-cols-4 gap-2">
+                            <button onClick={() => moveLayerToExtreme(selectedElement.id, 'front')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring to Front (Ctrl+])">
+                                <ChevronsUp size={16} />
+                            </button>
+                            <button onClick={() => moveLayer(selectedElement.id, 'forward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Bring Forward (Ctrl+Shift+])">
+                                <ChevronUp size={16} />
+                            </button>
+                            <button onClick={() => moveLayer(selectedElement.id, 'backward')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send Backward (Ctrl+Shift+[)">
+                                <ChevronDown size={16} />
+                            </button>
+                            <button onClick={() => moveLayerToExtreme(selectedElement.id, 'back')} className="p-2 bg-white/10 text-emerald-300 rounded-md hover:bg-emerald-600 hover:text-white transition" title="Send to Back (Ctrl+[)">
+                                <ChevronsDown size={16} />
+                            </button>
+                        </div>
                     </div>
                     <button
                         onClick={handleDelete}
@@ -330,30 +332,31 @@ const ElementProperties = ({ selectedElement, setElements, setSelectedIds, moveL
 
 
 function App() {
-    const [canvasSize, setCanvasSize] = useState({ width: 1000, height: 1000});
+    const [canvasSize, setCanvasSize] = useState({ width: 1000, height: 1000 });
     const [elements, setElements] = useState([]);
-    
+
     const [selectedIds, setSelectedIds] = useState([]);
     const [projectId, setProjectId] = useState(null);
-    
+
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-    
+
     const [isResizing, setIsResizing] = useState(false);
     const [resizeHandle, setResizeHandle] = useState(null);
     const [resizeStartPoint, setResizeStartPoint] = useState({ x: 0, y: 0 });
+    const [resizeStartBounds, setResizeStartBounds] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const [copiedElement, setCopiedElement] = useState([]);
-    
+
     const [history, setHistory] = useState([[]]);
     const [historyIndex, setHistoryIndex] = useState(0);
-    
+
     const [activeGuides, setActiveGuides] = useState({ x: [], y: [] });
     const [showGrid, setShowGrid] = useState(false);
     const [gridSize, setGridSize] = useState(50);
-    
+
     const [toast, setToast] = useState(null);
-    
+
     // NEW STATE: For collapsible element properties panel
     const [isPropertiesExpanded, setIsPropertiesExpanded] = useState(true);
     const togglePropertiesExpand = useCallback(() => {
@@ -363,9 +366,9 @@ function App() {
     const canvasRef = useRef(null);
     const fileInputRef = useRef(null);
     const loadFileInputRef = useRef(null);
-    
+
     const ctxRef = useRef(null);
-    
+
     useEffect(() => {
         if (canvasRef.current) {
             ctxRef.current = canvasRef.current.getContext('2d');
@@ -374,7 +377,7 @@ function App() {
 
     const selectedElements = elements.filter(el => selectedIds.includes(el.id));
     const primarySelected = selectedElements[selectedElements.length - 1] || null;
-    
+
     // Auto-expand properties when a new element is selected
     useEffect(() => {
         if (primarySelected) {
@@ -385,7 +388,7 @@ function App() {
     const toggleGroupStatus = useCallback((id) => {
         const element = elements.find(el => el.id === id);
         const isCurrentlyGrouped = element?.isGrouped || false;
-        
+
         setElements(prevElements =>
             prevElements.map(el =>
                 el.id === id
@@ -399,7 +402,7 @@ function App() {
     const saveHistory = useCallback((newElements) => {
         setHistory(prevHistory => {
             const newHistory = prevHistory.slice(0, historyIndex + 1);
-            
+
             if (JSON.stringify(newHistory[newHistory.length - 1]) === JSON.stringify(newElements)) {
                 return prevHistory;
             }
@@ -408,24 +411,24 @@ function App() {
             } else {
                 setHistoryIndex(newHistory.length);
             }
-            
+
             return [...newHistory, newElements];
         });
     }, [historyIndex]);
-    
+
     const isIgnoringHistory = useRef(false);
-    
+
     useEffect(() => {
         if (isIgnoringHistory.current) {
             isIgnoringHistory.current = false;
             return;
         }
-        
+
         const timeout = setTimeout(() => {
             const serializableElements = elements.map(({ img, ...rest }) => rest);
             saveHistory(serializableElements);
         }, 100);
-        
+
         return () => clearTimeout(timeout);
     }, [elements, saveHistory]);
 
@@ -434,9 +437,9 @@ function App() {
             isIgnoringHistory.current = true;
             const newIndex = historyIndex - 1;
             setHistoryIndex(newIndex);
-            
+
             const elementsToLoad = history[newIndex];
-            
+
             const newElements = elementsToLoad.map(el => {
                 if (el.type === 'image' && el.src) {
                     const img = new Image();
@@ -461,7 +464,7 @@ function App() {
             isIgnoringHistory.current = true;
             const newIndex = historyIndex + 1;
             setHistoryIndex(newIndex);
-            
+
             const elementsToLoad = history[newIndex];
             const newElements = elementsToLoad.map(el => {
                 if (el.type === 'image' && el.src) {
@@ -474,7 +477,7 @@ function App() {
                 }
                 return el;
             });
-            
+
             setElements(newElements);
             setSelectedIds([]);
             setToast({ message: 'Redo successful.', type: 'success' });
@@ -489,7 +492,7 @@ function App() {
             if (index === -1) return prevElements;
             const element = prevElements[index];
             const newElements = [...prevElements];
-            
+
             if (direction === 'forward' && index < newElements.length - 1) {
                 newElements.splice(index, 1);
                 newElements.splice(index + 1, 0, element);
@@ -507,7 +510,7 @@ function App() {
             if (index === -1) return prevElements;
             const element = prevElements[index];
             const newElements = prevElements.filter(el => el.id !== id);
-            
+
             if (position === 'front') {
                 newElements.push(element);
             } else if (position === 'back') {
@@ -529,14 +532,14 @@ function App() {
         }
         return vertices;
     };
-    
+
     const drawPolygonPath = (ctx, el) => {
         const radius = el.size / 2;
         const cx = el.x + radius;
         const cy = el.y + radius;
-        
+
         const vertices = getPolygonVertices(el.sides, cx, cy, radius);
-        
+
         ctx.beginPath();
         if (vertices.length > 0) {
             ctx.moveTo(vertices[0].x, vertices[0].y);
@@ -546,7 +549,7 @@ function App() {
             ctx.closePath();
         }
     };
-    
+
     const getElementBounds = useCallback((el, ctx) => {
         let x, y, w, h;
         const strokeOffset = (el.strokeWidth || 0) / 2;
@@ -572,12 +575,12 @@ function App() {
             const ascent = textMetrics.actualBoundingBoxAscent || (el.fontSize * 0.8);
             const descent = textMetrics.actualBoundingBoxDescent || (el.fontSize * 0.2);
             const width = textMetrics.width;
-            
+
             y = el.y - ascent;
             w = width;
             h = ascent + descent;
             x = el.x;
-            
+
             x -= TEXT_BOUNDING_BUFFER;
             y -= TEXT_BOUNDING_BUFFER;
             w += 2 * TEXT_BOUNDING_BUFFER;
@@ -594,18 +597,18 @@ function App() {
 
     const getSnapGuides = useCallback((currentElementId, canvasW, canvasH) => {
         const allGuides = { x: [], y: [] };
-        
+
         allGuides.x.push(0, canvasW / 2, canvasW);
         allGuides.y.push(0, canvasH / 2, canvasH);
-        
+
         elements.forEach(el => {
             if (el.id === currentElementId) return;
             const bounds = getElementBounds(el, ctxRef.current);
-            
+
             allGuides.x.push(bounds.x, bounds.x + bounds.w / 2, bounds.x + bounds.w);
             allGuides.y.push(bounds.y, bounds.y + bounds.h / 2, bounds.y + bounds.h);
         });
-        
+
         if (showGrid && gridSize > 0) {
             for (let i = 0; i <= canvasW; i += gridSize) {
                 allGuides.x.push(i);
@@ -618,11 +621,11 @@ function App() {
         allGuides.y = [...new Set(allGuides.y.map(Math.round))];
         return allGuides;
     }, [elements, getElementBounds, showGrid, gridSize]);
-    
+
     const applySnap = (newX, newY, newW, newH, guides) => {
         const tolerance = SNAP_TOLERANCE;
         const snap = { x: newX, y: newY, guides: { x: [], y: [] } };
-        
+
         const checkX = [newX, newX + newW / 2, newX + newW];
         for (let i = 0; i < checkX.length; i++) {
             const elementPos = checkX[i];
@@ -652,24 +655,24 @@ function App() {
 
         return snap;
     };
-    
+
     const isPointInElement = useCallback((x, y, el) => {
         const ctx = ctxRef.current;
         if (!ctx) return false;
-        
+
         const bounds = getElementBounds(el, ctx);
-        
+
         if (el.type === 'rect' || el.type === 'image' || el.type === 'text' || el.type === 'polygon') {
             return x >= bounds.x && x <= bounds.x + bounds.w && y >= bounds.y && y <= bounds.y + bounds.h;
         } else if (el.type === 'circle') {
             if (x < bounds.x || x > bounds.x + bounds.w || y < bounds.y || y > bounds.y + bounds.h) return false;
-            
+
             const radius = el.radius + (el.strokeWidth || 0) / 2;
             const cx = el.x + el.radius;
             const cy = el.y + el.radius;
             const dx = x - cx;
             const dy = y - cy;
-            
+
             return (dx * dx) + (dy * dy) <= (radius * radius);
         }
         return false;
@@ -710,14 +713,14 @@ function App() {
             ctx.fillRect(pos.x - 4, pos.y - 4, handleSize, handleSize);
         });
     };
-    
+
     const drawGrid = (ctx, width, height, size) => {
         if (!size || size <= 0) return;
-        
+
         ctx.save();
         ctx.strokeStyle = '#e5e7eb';
         ctx.lineWidth = 0.5;
-        
+
         for (let x = 0; x <= width; x += size) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
@@ -730,7 +733,7 @@ function App() {
             ctx.lineTo(width, y);
             ctx.stroke();
         }
-        
+
         ctx.restore();
     };
 
@@ -738,27 +741,27 @@ function App() {
         const canvas = canvasRef.current;
         const ctx = ctxRef.current;
         if (!canvas || !ctx) return;
-        
+
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
+
         if (showGrid) {
             drawGrid(ctx, canvasSize.width, canvasSize.height, gridSize);
         }
-        
+
         elements.forEach(el => {
             ctx.save();
-            
+
             const color = el.color || '#000000';
             const strokeWidth = el.strokeWidth || 0;
             const rotation = el.rotation || 0;
-            
+
             ctx.globalAlpha = el.opacity !== undefined ? el.opacity : 1;
-            
+
             if (rotation !== 0) {
                 let centerX, centerY;
-                
+
                 if (el.type === 'rect' || el.type === 'image' || el.type === 'polygon') {
                     const w = el.width || el.size;
                     const h = el.height || el.size;
@@ -800,33 +803,33 @@ function App() {
                 ctx.lineWidth = strokeWidth;
                 ctx.stroke();
             }
-            
+
             if (el.type === 'text') {
                 ctx.fillStyle = color;
                 ctx.font = `${el.fontSize || 12}px Arial`;
                 ctx.textBaseline = 'alphabetic';
                 ctx.fillText(el.text, el.x, el.y);
             }
-            
+
             if (el.type === 'image' && el.img) {
                 ctx.drawImage(el.img, el.x, el.y, el.width, el.height);
             }
-            
+
             if (selectedIds.includes(el.id)) {
                 ctx.restore();
                 ctx.save();
                 const bounds = getElementBounds(el, ctx);
-                
+
                 ctx.strokeStyle = '#10b981';
                 ctx.lineWidth = 2;
                 ctx.globalAlpha = 1;
                 ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
-                
+
                 if (el.id === primarySelected?.id && selectedIds.length === 1) {
                     drawHandles(ctx, bounds);
                 }
             }
-            
+
             ctx.restore();
         });
 
@@ -835,7 +838,7 @@ function App() {
         ctx.strokeStyle = '#ec4899';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 2]);
-        
+
         activeGuides.x.forEach(guideX => {
             ctx.beginPath();
             ctx.moveTo(guideX, 0);
@@ -848,7 +851,7 @@ function App() {
             ctx.lineTo(canvas.width, guideY);
             ctx.stroke();
         });
-        
+
         ctx.restore();
         ctx.setLineDash([]);
     }, [elements, canvasSize, selectedIds, primarySelected, activeGuides, showGrid, gridSize, getElementBounds]);
@@ -862,13 +865,14 @@ function App() {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        
+
         if (primarySelected && selectedIds.length === 1) {
             const handle = isPointOnHandle(x, y, primarySelected);
             if (handle) {
                 setIsResizing(true);
                 setResizeHandle(handle);
                 setResizeStartPoint({ x, y });
+                setResizeStartBounds(getElementBounds(primarySelected, ctxRef.current));
                 return;
             }
         }
@@ -876,7 +880,7 @@ function App() {
         for (let i = elements.length - 1; i >= 0; i--) {
             if (isPointInElement(x, y, elements[i])) {
                 const clickedId = elements[i].id;
-                
+
                 if (e.shiftKey) {
                     setSelectedIds(prev =>
                         prev.includes(clickedId)
@@ -886,13 +890,13 @@ function App() {
                 } else {
                     setSelectedIds([clickedId]);
                 }
-                
+
                 setIsDragging(true);
                 setDragOffset({ x: x - elements[i].x, y: y - elements[i].y });
                 return;
             }
         }
-        
+
         setSelectedIds([]);
     };
 
@@ -904,7 +908,7 @@ function App() {
         let x = e.clientX - rect.left;
         let y = e.clientY - rect.top;
         const shiftKey = e.shiftKey;
-        
+
         if (isDragging) {
             canvas.style.cursor = 'grabbing';
         } else if (isResizing) {
@@ -923,14 +927,14 @@ function App() {
         } else {
             canvas.style.cursor = 'default';
         }
-        
+
         if (isDragging && primarySelected) {
             const currentElement = elements.find(el => el.id === primarySelected.id);
             if (!currentElement) return;
 
             const dx_raw = x - (currentElement.x + dragOffset.x);
             const dy_raw = y - (currentElement.y + dragOffset.y);
-            
+
             let finalDx = dx_raw;
             let finalDy = dy_raw;
             setActiveGuides({ x: [], y: [] });
@@ -941,7 +945,7 @@ function App() {
 
                 let potentialCoreX = currentElement.x + dx_raw;
                 let potentialCoreY = currentElement.y + dy_raw;
-                
+
                 const strokeOffset = (currentElement.strokeWidth || 0) / 2;
                 let potentialBoundsX;
                 let potentialBoundsY;
@@ -949,14 +953,14 @@ function App() {
                 if (currentElement.type === 'text') {
                     const textBoundsHeight = bounds.h - (2 * TEXT_BOUNDING_BUFFER);
                     const estimatedAscent = textBoundsHeight * 0.8;
-                    
+
                     potentialBoundsX = potentialCoreX - TEXT_BOUNDING_BUFFER;
                     potentialBoundsY = potentialCoreY - estimatedAscent - TEXT_BOUNDING_BUFFER;
                 } else {
                     potentialBoundsX = potentialCoreX - strokeOffset;
                     potentialBoundsY = potentialCoreY - strokeOffset;
                 }
-                
+
                 const snapResult = applySnap(
                     potentialBoundsX,
                     potentialBoundsY,
@@ -964,16 +968,16 @@ function App() {
                     bounds.h,
                     guides
                 );
-                
+
                 const snapCorrectionX = snapResult.x - potentialBoundsX;
                 const snapCorrectionY = snapResult.y - potentialBoundsY;
 
                 finalDx = dx_raw + snapCorrectionX;
                 finalDy = dy_raw + snapCorrectionY;
-                
+
                 setActiveGuides(snapResult.guides);
             }
-            
+
             setElements(elements.map(el => {
                 if (selectedIds.includes(el.id)) {
                     return {
@@ -986,11 +990,11 @@ function App() {
             }));
             return;
         }
-        
-        if (isResizing && primarySelected && resizeHandle && selectedIds.length === 1) {
+
+        if (isResizing && primarySelected && resizeHandle && selectedIds.length === 1 && resizeStartBounds) {
             const originalEl = primarySelected;
-            const bounds = getElementBounds(originalEl, ctxRef.current);
-            
+            const bounds = resizeStartBounds; // Use initial bounds, not current
+
             const rawDx = x - resizeStartPoint.x;
             const rawDy = y - resizeStartPoint.y;
             const dx = rawDx * RESIZE_SENSITIVITY_FACTOR;
@@ -1001,7 +1005,7 @@ function App() {
             let newW = bounds.w;
             let newH = bounds.h;
             let aspectRatio = bounds.w / bounds.h;
-            
+
             switch (resizeHandle) {
                 case 'tl':
                     newX = bounds.x + dx; newY = bounds.y + dy;
@@ -1041,7 +1045,7 @@ function App() {
                     newX = bounds.x + (bounds.w - newW);
                 }
             }
-            
+
             newW = Math.max(10, newW);
             newH = Math.max(10, newH);
 
@@ -1081,7 +1085,7 @@ function App() {
                         const newFontSize = Math.max(8, newH - (2 * TEXT_BOUNDING_BUFFER));
                         const estimatedAscent = newFontSize * 0.8;
                         const newTextY = newY + TEXT_BOUNDING_BUFFER + estimatedAscent;
-                        
+
                         return {
                             ...el,
                             x: newX + TEXT_BOUNDING_BUFFER,
@@ -1108,8 +1112,9 @@ function App() {
         setIsResizing(false);
         setResizeHandle(null);
         setResizeStartPoint({ x: 0, y: 0 });
+        setResizeStartBounds(null);
     };
-    
+
     const handleContextMenu = useCallback((e) => {
         e.preventDefault();
         const canvas = canvasRef.current;
@@ -1126,7 +1131,7 @@ function App() {
                 break;
             }
         }
-        
+
         setContextMenu({ x: e.clientX, y: e.clientY, elementId: clickedElementId });
     }, [elements, isPointInElement, selectedIds]);
 
@@ -1157,11 +1162,11 @@ function App() {
                 const newElements = [];
                 const newIds = [];
                 const newTime = Date.now();
-                
+
                 copiedElement.forEach((el, index) => {
                     const newId = newTime + index + Math.random();
                     newIds.push(newId);
-                    
+
                     const baseElement = {
                         ...el,
                         id: newId,
@@ -1171,7 +1176,7 @@ function App() {
                         opacity: el.opacity || 1,
                         isGrouped: el.isGrouped || false,
                     };
-                    
+
                     if (baseElement.type === 'image' && baseElement.src) {
                         const img = new Image();
                         img.onload = () => {
@@ -1183,7 +1188,7 @@ function App() {
                         newElements.push(baseElement);
                     }
                 });
-                
+
                 setElements(prev => [...prev, ...newElements]);
                 setSelectedIds(newIds);
                 setToast({ message: `${newElements.length} element(s) pasted.`, type: 'success' });
@@ -1198,33 +1203,33 @@ function App() {
             setToast({ message: 'Element sent to back.', type: 'success' });
         }
         else if (action === 'duplicate' && primaryTargetId) {
-              const elementToDuplicate = elements.find(el => el.id === primaryTargetId);
-                if (elementToDuplicate) {
-                    const { img, ...copyData } = elementToDuplicate;
-                    const newId = Date.now() + Math.random();
-                    const newElement = {
-                        ...copyData,
-                        id: newId,
-                        x: copyData.x + 20,
-                        y: copyData.y + 20,
-                        rotation: copyData.rotation || 0,
-                        opacity: copyData.opacity || 1,
+            const elementToDuplicate = elements.find(el => el.id === primaryTargetId);
+            if (elementToDuplicate) {
+                const { img, ...copyData } = elementToDuplicate;
+                const newId = Date.now() + Math.random();
+                const newElement = {
+                    ...copyData,
+                    id: newId,
+                    x: copyData.x + 20,
+                    y: copyData.y + 20,
+                    rotation: copyData.rotation || 0,
+                    opacity: copyData.opacity || 1,
+                };
+                if (newElement.type === 'image' && newElement.src) {
+                    const img = new Image();
+                    img.onload = () => {
+                        setElements(prev => prev.map(p => p.id === newId ? { ...el, img: img } : p));
                     };
-                    if (newElement.type === 'image' && newElement.src) {
-                        const img = new Image();
-                        img.onload = () => {
-                            setElements(prev => prev.map(p => p.id === newId ? { ...el, img: img } : p));
-                        };
-                        img.src = newElement.src;
-                        setElements(prev => [...prev, { ...newElement, img: undefined }]);
-                    } else {
-                        setElements(prev => [...prev, newElement]);
-                    }
-                    setSelectedIds([newId]);
-                    setToast({ message: 'Element duplicated.', type: 'success' });
+                    img.src = newElement.src;
+                    setElements(prev => [...prev, { ...newElement, img: undefined }]);
+                } else {
+                    setElements(prev => [...prev, newElement]);
                 }
+                setSelectedIds([newId]);
+                setToast({ message: 'Element duplicated.', type: 'success' });
+            }
         }
-        
+
         setContextMenu(null);
     };
 
@@ -1276,11 +1281,10 @@ function App() {
         if (file) {
             const formData = new FormData();
             formData.append('image', file);
-            
+
             try {
-                // NOTE: This POST is a mock operation since a real backend isn't available.
-                // It assumes the server returns { url: 'base64_or_public_url' }
-                const response = await axios.post(`${BACKEND_URL}/api/assets/upload`, formData, {
+                // Now using API_BASE_URL from the utility file
+                const response = await axios.post(`${API_BASE_URL}/api/assets/upload`, formData, {
                     headers: {
                         'Content-Type': 'multipart/form-data',
                     },
@@ -1288,7 +1292,7 @@ function App() {
 
                 const imageUrl = response.data.url;
                 const newId = Date.now();
-                
+
                 const img = new Image();
                 img.onload = () => {
                     setElements(prev => [...prev, {
@@ -1302,13 +1306,11 @@ function App() {
                     }]);
                     setSelectedIds([newId]);
                 };
-                // For a real app, `imageUrl` would be a server-provided URL. 
-                // For local testing, using a mock response or Data URL is common.
-                img.src = imageUrl; 
+                img.src = imageUrl;
 
             } catch (error) {
                 console.error("Image upload failed:", error);
-                setToast({ message: 'Failed to upload image.', type: 'error' });
+                setToast({ message: 'Failed to upload image. (Check API status)', type: 'error' });
             }
         }
         e.target.value = '';
@@ -1317,28 +1319,30 @@ function App() {
     const handleSaveCanvas = async () => {
         try {
             const elementsToSend = elements.map(({ img, ...rest }) => rest);
-            const response = await axios.post(`${BACKEND_URL}/api/projects/save`, {
+            // Now using API_BASE_URL from the utility file
+            const response = await axios.post(`${API_BASE_URL}/api/projects/save`, {
                 id: projectId,
                 name: 'My New Project',
                 canvasSize,
                 elements: elementsToSend,
             });
-            
+
             setProjectId(response.data.projectId);
             setToast({ message: `Canvas saved (ID: ${response.data.projectId})`, type: 'success' });
 
         } catch (error) {
             console.error('Save failed:', error);
-            setToast({ message: 'Failed to save canvas.', type: 'error' });
+            setToast({ message: 'Failed to save canvas. (Check API status)', type: 'error' });
         }
     };
 
     const handleLoadCanvas = async () => {
         const id = prompt("Enter Project ID to Load (e.g., proj_1700000000000):");
         if (!id) return;
-        
+
         try {
-            const response = await axios.get(`${BACKEND_URL}/api/projects/load/${id}`);
+            // Now using API_BASE_URL from the utility file
+            const response = await axios.get(`${API_BASE_URL}/api/projects/load/${id}`);
             const canvasData = response.data;
 
             setCanvasSize(canvasData.canvasSize);
@@ -1349,7 +1353,7 @@ function App() {
             const loadedElements = canvasData.elements.map(el => {
                 if (el.opacity === undefined) el.opacity = 1;
                 if (el.isGrouped === undefined) el.isGrouped = false;
-                
+
                 if (el.type === 'image' && el.src) {
                     const img = new Image();
                     img.onload = () => {
@@ -1367,38 +1371,57 @@ function App() {
 
         } catch (error) {
             console.error('Load failed:', error);
-            setToast({ message: 'Failed to load canvas: Check Project ID.', type: 'error' });
+            setToast({ message: 'Failed to load canvas: Check Project ID or API status.', type: 'error' });
         }
     };
-    
+
     const handleExport = async (type) => {
         try {
             const elementsToSend = elements.map(({ img, ...rest }) => rest);
-            const endpoint = `/api/canvas/export/${type}`;
 
-            // NOTE: This POST is a mock operation since a real backend isn't available.
-            // It assumes the backend will return a Blob (file data) for download.
-            const response = await axios.post(`${BACKEND_URL}${endpoint}`, {
-                width: canvasSize.width,
-                height: canvasSize.height,
-                elements: JSON.stringify(elementsToSend),
-                settings: { scale: 2 }
-            }, {
-                responseType: 'blob'
-            });
+            if (type === 'pdf') {
+                // ✅ FIX: Use the dedicated exportPDF function which handles the blob response
+                const pdfBlob = await exportPDF({
+                    width: canvasSize.width,
+                    height: canvasSize.height,
+                    elements: elementsToSend, // Pass raw element data (NOT stringified)
+                });
 
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `canvas-export.${type}`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            
+                const url = window.URL.createObjectURL(pdfBlob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `canvas-export.pdf`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+
+            } else if (type === 'png') {
+                // PNG export uses the same backend structure as the previous working code
+                const endpoint = `/api/canvas/export/${type}`;
+                const response = await axios.post(`${API_BASE_URL}${endpoint}`, {
+                    width: canvasSize.width,
+                    height: canvasSize.height,
+                    elements: JSON.stringify(elementsToSend),
+                    settings: { scale: 2 } // Mock setting for scale
+                }, {
+                    responseType: 'blob'
+                });
+
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `canvas-export.${type}`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+            }
+
             setToast({ message: `${type.toUpperCase()} export successful!`, type: 'success' });
         } catch (error) {
             console.error("Export failed:", error);
-            setToast({ message: `Failed to export ${type.toUpperCase()}.`, type: 'error' });
+            setToast({ message: `Failed to export ${type.toUpperCase()}. (Check API status: ${API_BASE_URL})`, type: 'error' });
         }
     };
 
@@ -1408,13 +1431,13 @@ function App() {
                 return;
             }
             const isCtrl = e.ctrlKey || e.metaKey;
-            
+
             if (isCtrl && e.key === 'z' && !e.shiftKey) {
                 e.preventDefault();
                 handleUndo();
                 return;
             }
-            
+
             if ((isCtrl && e.key === 'y') || (isCtrl && e.shiftKey && e.key === 'z')) {
                 e.preventDefault();
                 handleRedo();
@@ -1432,16 +1455,16 @@ function App() {
 
             if (selectedIds.length > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                 e.preventDefault();
-                
+
                 const nudgeAmount = e.shiftKey ? 10 : 1;
-                
+
                 setElements(prevElements =>
                     prevElements.map(el => {
                         if (selectedIds.includes(el.id)) {
                             let newX = el.x;
                             let newY = el.y;
-                            
-                            switch(e.key) {
+
+                            switch (e.key) {
                                 case 'ArrowUp':
                                     newY -= nudgeAmount;
                                     break;
@@ -1455,7 +1478,7 @@ function App() {
                                     newX += nudgeAmount;
                                     break;
                             }
-                            
+
                             return { ...el, x: newX, y: newY };
                         }
                         return el;
@@ -1496,16 +1519,16 @@ function App() {
                 const elementsToDuplicate = elements
                     .filter(el => selectedIds.includes(el.id))
                     .map(({ img, ...rest }) => rest);
-                
+
                 if (elementsToDuplicate.length > 0) {
                     const newElements = [];
                     const newIds = [];
                     const newTime = Date.now();
-                    
+
                     elementsToDuplicate.forEach((el, index) => {
                         const newId = newTime + index + Math.random();
                         newIds.push(newId);
-                        
+
                         const baseElement = {
                             ...el,
                             id: newId,
@@ -1514,7 +1537,7 @@ function App() {
                             rotation: el.rotation || 0,
                             opacity: el.opacity || 1,
                         };
-                        
+
                         if (baseElement.type === 'image' && baseElement.src) {
                             const img = new Image();
                             img.onload = () => {
@@ -1532,7 +1555,7 @@ function App() {
                     setToast({ message: `${newElements.length} element(s) duplicated.`, type: 'success' });
                 }
             }
-            
+
             if (isCtrl && primarySelected) {
                 if (e.key === ']') {
                     e.preventDefault();
@@ -1565,7 +1588,7 @@ function App() {
                     </div>
                     <h1 className="text-xl font-bold text-white">Canvas Studio</h1>
                 </div>
-                
+
                 {/* Visual Clipboard Indicator */}
                 {copiedElement.length > 0 && (
                     <div className="flex items-center gap-2 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-lg border border-yellow-400/30 text-sm">
@@ -1573,10 +1596,10 @@ function App() {
                         <span>Clipboard: {copiedElement.length} element(s) copied</span>
                     </div>
                 )}
-                
+
                 {/* UNDO / REDO / SAVE / LOAD BUTTONS */}
                 <div className="flex items-center gap-4">
-                     <button
+                    <button
                         onClick={handleUndo}
                         disabled={historyIndex === 0}
                         className={`p-2 rounded-lg transition ${historyIndex === 0 ? 'text-gray-500 bg-white/5' : 'text-white bg-white/20 hover:bg-white/30'}`}
@@ -1592,7 +1615,7 @@ function App() {
                     >
                         <Redo size={18} />
                     </button>
-                    
+
                     {/* SAVE BUTTON */}
                     <button
                         onClick={handleSaveCanvas}
@@ -1612,7 +1635,7 @@ function App() {
                         <FolderOpen size={18} />
                         Load Canvas
                     </button>
-                    
+
                     {/* EXPORT DROPDOWN */}
                     <div className="relative group">
                         <button
@@ -1622,7 +1645,7 @@ function App() {
                             <Download size={18} />
                             Export
                         </button>
-                        {/* FIX: top-full ensures no gap between the button and the dropdown menu, keeping the hover state active */}
+                        {/* THE FIX: top-full ensures no gap between the button and the dropdown menu, keeping the hover state active */}
                         <div className="absolute right-0 top-full w-40 bg-gray-800 rounded-md shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto z-50">
                             <button onClick={() => handleExport('pdf')} className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-emerald-600 rounded-t-md">
                                 Export PDF
@@ -1632,7 +1655,7 @@ function App() {
                             </button>
                         </div>
                     </div>
-                    
+
                 </div>
             </header>
 
@@ -1640,9 +1663,9 @@ function App() {
             <div className="flex flex-1 overflow-hidden">
                 {/* Sidebar Controls - flex-col is maintained, content below the grid controls is made scrollable */}
                 <div className="w-72 bg-white/10 backdrop-blur-lg border-r border-white/20 flex flex-col flex-shrink-0">
-                    
+
                     {/* FIXED TOP SECTIONS */}
-                    
+
                     {/* CANVAS SIZE SECTION */}
                     <div className="p-6 border-b border-white/10">
                         <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Canvas Size</h2>
@@ -1669,7 +1692,7 @@ function App() {
                             </div>
                         </div>
                     </div>
-                    
+
                     {/* GRID CONTROLS */}
                     <div className="p-6 border-b border-white/10">
                         <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Grid & Snapping</h2>
@@ -1685,7 +1708,7 @@ function App() {
                                 <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${showGrid ? 'translate-x-6' : 'translate-x-0'}`}></div>
                             </button>
                         </div>
-                        
+
                         <div className="flex flex-col">
                             <label className="text-xs text-emerald-300 mb-1">Grid Size (px)</label>
                             <input
@@ -1700,10 +1723,10 @@ function App() {
                             <p className="text-xs text-gray-400 mt-1 italic">Snaps to elements, canvas, and grid.</p>
                         </div>
                     </div>
-                    
+
                     {/* SCROLLABLE SECTION WRAPPER - Correctly handles scrolling for elements and properties if content overflows sidebar height */}
                     <div className="flex-1 overflow-y-auto">
-                        
+
                         {/* ELEMENTS CREATION SECTION */}
                         <div className="p-6">
                             <h2 className="text-xs font-semibold text-emerald-200 uppercase tracking-wider mb-4">Elements</h2>
@@ -1721,7 +1744,7 @@ function App() {
                                     <Type size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
                                     <span className="text-xs font-medium text-emerald-200">Text</span>
                                 </button>
-                                
+
                                 {/* Row 2: Shapes and Image */}
                                 <button onClick={addTriangle} className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/20 rounded-xl hover:bg-white/10 hover:border-emerald-400 transition group">
                                     <Triangle size={24} className="text-emerald-300 group-hover:text-emerald-200 mb-2" />
@@ -1759,7 +1782,7 @@ function App() {
                                 toggleExpand={togglePropertiesExpand}
                             />
                         )}
-                        
+
                     </div> {/* END of scrollable wrapper */}
 
                 </div>
@@ -1784,7 +1807,7 @@ function App() {
                     </div>
                 </div>
             </div>
-            
+
             {/* RENDER CUSTOM CONTEXT MENU */}
             {contextMenu && (
                 <ContextMenu
@@ -1797,7 +1820,7 @@ function App() {
                     onClose={handleCloseMenu}
                 />
             )}
-            
+
             {/* RENDER TOAST NOTIFICATION */}
             {toast && (
                 <Toast
